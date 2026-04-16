@@ -56,6 +56,7 @@ python -m pip install -r requirements.txt
 tasks.bat
 ```
 ```
+откроется окно для выбора
 ==========================================
             PBIT Analyzer Tasks
 ==========================================
