@@ -55,7 +55,7 @@ python -m pip install -r requirements.txt
 ```bash
 tasks.bat
 ```
-появится окно 
+```
 ==========================================
             PBIT Analyzer Tasks
 ==========================================
@@ -70,7 +70,7 @@ tasks.bat
 5. Exit
 
 CHOICE=Enter option number [1-5]: 
-
+```
 
 
 Или напрямую:
