@@ -52,6 +52,9 @@ TAB_MAPPING = [
     ('stats', '📈 Статистика'),
 ]
 
+LINEAGE_HEAVY_TABLE_ROWS_THRESHOLD = 1200
+
+
 def open_path_in_os(path: str) -> None:
     if sys.platform == 'win32':
         os.startfile(path)
@@ -603,12 +606,12 @@ class PBITAnalyzerMainWindow(QMainWindow):
             df = dfs.get(df_key)
             if df is None or df.empty:
                 continue
-            table = self._create_table_from_df(df)
+            table = self._create_table_from_df(df, df_key=df_key)
             self.tab_widget.addTab(table, tab_name)
 
         self.log(f"Создано вкладок: {self.tab_widget.count()}")
 
-    def _create_table_from_df(self, df):
+    def _create_table_from_df(self, df, df_key: str = ""):
         table = CustomTableWidget()
         table.setRowCount(len(df))
         table.setColumnCount(len(df.columns))
@@ -629,8 +632,21 @@ class PBITAnalyzerMainWindow(QMainWindow):
 
         header = table.horizontalHeader()
         header.setStretchLastSection(True)
-        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        is_heavy_lineage_table = (
+            df_key in {"lineage", "lineage_upstream", "lineage_downstream"}
+            and len(df) >= LINEAGE_HEAVY_TABLE_ROWS_THRESHOLD
+        )
+        if is_heavy_lineage_table:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+            table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+            table.verticalHeader().setDefaultSectionSize(24)
+            self.log(
+                f"Таблица {df_key} большая ({len(df)} строк), "
+                "использован облегченный режим ширины колонок."
+            )
+        else:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+            table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         return table
 
     def _open_excel(self):

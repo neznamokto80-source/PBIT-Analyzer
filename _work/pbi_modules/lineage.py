@@ -1,4 +1,5 @@
 import re
+from collections import deque
 
 import pandas as pd
 
@@ -299,30 +300,49 @@ def _build_focus_nodes(edges_df: pd.DataFrame) -> list[tuple[str, str, str]]:
     return [(node_id, data[0], data[1]) for node_id, data in focus_nodes.items()]
 
 
-def _collect_edge_indexes(edges_df: pd.DataFrame, focus_id: str, direction: str) -> set[int]:
-    if edges_df.empty:
-        return set()
+def _build_adjacency_indexes(
+    edges_df: pd.DataFrame,
+) -> tuple[dict[str, list[tuple[int, str]]], dict[str, list[tuple[int, str]]]]:
+    adjacency_out: dict[str, list[tuple[int, str]]] = {}
+    adjacency_in: dict[str, list[tuple[int, str]]] = {}
 
+    for idx, row in edges_df.iterrows():
+        src = str(row.get("ID источника", ""))
+        dst = str(row.get("ID приемника", ""))
+        if not src or not dst:
+            continue
+        adjacency_out.setdefault(src, []).append((idx, dst))
+        adjacency_in.setdefault(dst, []).append((idx, src))
+
+    return adjacency_out, adjacency_in
+
+
+def _collect_edge_indexes_with_adjacency(
+    focus_id: str,
+    direction: str,
+    adjacency_out: dict[str, list[tuple[int, str]]],
+    adjacency_in: dict[str, list[tuple[int, str]]],
+) -> set[int]:
     visited_nodes = {focus_id}
     edge_indexes: set[int] = set()
-    queue = [focus_id]
+    queue: deque[str] = deque([focus_id])
 
     while queue:
-        current = queue.pop(0)
-        for idx, row in edges_df.iterrows():
-            src = str(row.get("ID источника", ""))
-            dst = str(row.get("ID приемника", ""))
-
-            if direction == "upstream" and dst == current:
+        current = queue.popleft()
+        if direction == "upstream":
+            candidate_indexes = adjacency_in.get(current, [])
+            for idx, prev_node in candidate_indexes:
                 edge_indexes.add(idx)
-                if src and src not in visited_nodes:
-                    visited_nodes.add(src)
-                    queue.append(src)
-            elif direction == "downstream" and src == current:
+                if prev_node and prev_node not in visited_nodes:
+                    visited_nodes.add(prev_node)
+                    queue.append(prev_node)
+        else:
+            candidate_indexes = adjacency_out.get(current, [])
+            for idx, next_node in candidate_indexes:
                 edge_indexes.add(idx)
-                if dst and dst not in visited_nodes:
-                    visited_nodes.add(dst)
-                    queue.append(dst)
+                if next_node and next_node not in visited_nodes:
+                    visited_nodes.add(next_node)
+                    queue.append(next_node)
 
     return edge_indexes
 
@@ -345,25 +365,40 @@ def build_lineage_directions(
     else:
         focus_nodes = _build_focus_nodes(edges_df)
 
-    upstream_rows = []
-    downstream_rows = []
+    upstream_frames: list[pd.DataFrame] = []
+    downstream_frames: list[pd.DataFrame] = []
+    adjacency_out, adjacency_in = _build_adjacency_indexes(edges_df)
+    edge_columns = [
+        "Тип источника",
+        "ID источника",
+        "Имя источника",
+        "Тип приемника",
+        "ID приемника",
+        "Имя приемника",
+        "Тип связи",
+        "Контекст",
+    ]
 
     for focus_id, focus_type, focus_name in focus_nodes:
-        upstream_idx = _collect_edge_indexes(edges_df, focus_id, "upstream")
-        downstream_idx = _collect_edge_indexes(edges_df, focus_id, "downstream")
+        upstream_idx = _collect_edge_indexes_with_adjacency(focus_id, "upstream", adjacency_out, adjacency_in)
+        downstream_idx = _collect_edge_indexes_with_adjacency(focus_id, "downstream", adjacency_out, adjacency_in)
 
-        for idx in sorted(upstream_idx):
-            row = edges_df.iloc[idx].to_dict()
-            row.update({"ID фокуса": focus_id, "Тип фокуса": focus_type, "Имя фокуса": focus_name or "—"})
-            upstream_rows.append(row)
+        if upstream_idx:
+            upstream_slice = edges_df.loc[sorted(upstream_idx), edge_columns].copy()
+            upstream_slice.insert(0, "Имя фокуса", focus_name or "—")
+            upstream_slice.insert(0, "Тип фокуса", focus_type)
+            upstream_slice.insert(0, "ID фокуса", focus_id)
+            upstream_frames.append(upstream_slice)
 
-        for idx in sorted(downstream_idx):
-            row = edges_df.iloc[idx].to_dict()
-            row.update({"ID фокуса": focus_id, "Тип фокуса": focus_type, "Имя фокуса": focus_name or "—"})
-            downstream_rows.append(row)
+        if downstream_idx:
+            downstream_slice = edges_df.loc[sorted(downstream_idx), edge_columns].copy()
+            downstream_slice.insert(0, "Имя фокуса", focus_name or "—")
+            downstream_slice.insert(0, "Тип фокуса", focus_type)
+            downstream_slice.insert(0, "ID фокуса", focus_id)
+            downstream_frames.append(downstream_slice)
 
-    upstream_df = pd.DataFrame(upstream_rows) if upstream_rows else _empty_direction_df()
-    downstream_df = pd.DataFrame(downstream_rows) if downstream_rows else _empty_direction_df()
+    upstream_df = pd.concat(upstream_frames, ignore_index=True) if upstream_frames else _empty_direction_df()
+    downstream_df = pd.concat(downstream_frames, ignore_index=True) if downstream_frames else _empty_direction_df()
 
     if not upstream_df.empty:
         upstream_df = upstream_df.drop_duplicates().reset_index(drop=True)
