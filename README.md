@@ -53,8 +53,25 @@ python -m pip install -r requirements.txt
 Через bat-файл:
 
 ```bash
-_work\run.bat
+tasks.bat
 ```
+появится окно 
+==========================================
+            PBIT Analyzer Tasks
+==========================================
+1. Run GUI application
+   Starts: python _work\last_work_gui_work.py
+2. Lint code
+   Runs:   python -m ruff check .
+3. Run tests
+   Runs:   python -m pytest
+4. Check all (lint + test)
+   Runs lint first, then tests
+5. Exit
+
+CHOICE=Enter option number [1-5]: 
+
+
 
 Или напрямую:
 
