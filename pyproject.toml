@@ -1,0 +1,10 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+exclude = ["temp"]
+
+[tool.ruff.lint.per-file-ignores]
+"_work/last_work_gui_work.py" = ["E402"]
