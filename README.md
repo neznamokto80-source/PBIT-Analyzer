@@ -1,6 +1,8 @@
 # PBIT Analyzer
 
 Desktop-приложение для анализа `Power BI Template` (`.pbit`) файлов.
+![Скриншот](screenshot/measures.png)
+
 
 ## Что делает
 
