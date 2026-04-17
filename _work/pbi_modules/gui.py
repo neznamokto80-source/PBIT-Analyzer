@@ -216,6 +216,9 @@ class PBITAnalyzerMainWindow(QMainWindow):
         main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.setSpacing(5)
 
+        header_panel = self._create_header_panel()
+        main_layout.addWidget(header_panel)
+
         top_panel = self._create_top_panel()
         main_layout.addWidget(top_panel)
 
@@ -226,10 +229,8 @@ class PBITAnalyzerMainWindow(QMainWindow):
         content_layout.setContentsMargins(0, 0, 0, 0)
         left_panel = self._create_left_panel()
         content_layout.addWidget(left_panel, 0)
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setTabsClosable(False)
-        self.tab_widget.setMovable(True)
-        content_layout.addWidget(self.tab_widget, 1)
+        right_panel = self._create_right_panel()
+        content_layout.addWidget(right_panel, 1)
         splitter.addWidget(content_widget)
 
         log_widget = self._create_log_panel()
@@ -242,6 +243,19 @@ class PBITAnalyzerMainWindow(QMainWindow):
         self.progress_bar.setMaximumWidth(300)
         self.progress_bar.setVisible(False)
         self.statusBar().addPermanentWidget(self.progress_bar)
+
+    def _create_header_panel(self):
+        panel = QWidget()
+        layout = QHBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        title_label = QLabel("🔍 PBIT Analyzer")
+        title_label.setStyleSheet("font-size: 18px; font-weight: bold;")
+        layout.addWidget(title_label)
+        layout.addStretch()
+        help_button = QPushButton("❓ Справка")
+        help_button.clicked.connect(self._show_help)
+        layout.addWidget(help_button)
+        return panel
 
     def _create_top_panel(self):
         panel = QGroupBox("Файл и настройки")
@@ -351,6 +365,39 @@ class PBITAnalyzerMainWindow(QMainWindow):
         panel.setMaximumWidth(200)
         return panel
 
+    def _create_right_panel(self):
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.result_tabs = QTabWidget()
+
+        # Вкладка с таблицами результатов
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setTabsClosable(False)
+        self.tab_widget.setMovable(True)
+        self.result_tabs.addTab(self.tab_widget, "Результаты парсинга")
+
+        # Вкладка текстового вывода
+        self.text_output = QTextEdit()
+        self.text_output.setReadOnly(True)
+        self.text_output.setFont(QFont("Consolas", 10))
+        self.result_tabs.addTab(self.text_output, "Текстовый вывод")
+
+        # Вкладка статистики
+        self.stats_output = QTextEdit()
+        self.stats_output.setReadOnly(True)
+        self.stats_output.setFont(QFont("Consolas", 10))
+        self.result_tabs.addTab(self.stats_output, "Статистика")
+
+        layout.addWidget(self.result_tabs, 1)
+
+        self.info_label = QLabel("Готово к работе. Выберите PBIT-файл и нажмите 'Начать анализ'.")
+        self.info_label.setWordWrap(True)
+        self.info_label.setStyleSheet("padding: 6px; color: #333;")
+        layout.addWidget(self.info_label)
+        return panel
+
     def _create_log_panel(self):
         panel = QGroupBox("Лог работы")
         layout = QVBoxLayout(panel)
@@ -426,6 +473,8 @@ class PBITAnalyzerMainWindow(QMainWindow):
         self.btn_open_excel.setEnabled(has_excel)
         self.btn_open_folder.setEnabled(True)
         self._populate_tables(dfs)
+        self._update_text_report(dfs)
+        self._update_stats_report(dfs)
         self._populate_lineage_focus_options()
 
         excel_path = dfs.get('excel_path')
@@ -436,6 +485,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
             self.log("АНАЛИЗ ЗАВЕРШЕН! Excel не создавался (по настройке).")
             finish_text = "Анализ завершен успешно!\n\nExcel не создавался (галка 'Создать Excel' выключена)."
         self.statusBar().showMessage("Анализ завершен успешно!")
+        self.info_label.setText("Анализ завершен успешно. Просмотрите вкладки 'Результаты парсинга', 'Текстовый вывод' и 'Статистика'.")
         QMessageBox.information(self, "Готово!", finish_text)
 
         if self.chk_open_folder.isChecked():
@@ -591,6 +641,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
         self._set_analysis_ui_state(is_running=False)
         self.log(f"❌ ОШИБКА: {error_msg}")
         self.statusBar().showMessage("Ошибка анализа!")
+        self.info_label.setText(f"Ошибка анализа: {error_msg}")
         QMessageBox.critical(self, "Ошибка", f"Произошла ошибка:\n\n{error_msg}")
 
     def log(self, message):
@@ -610,6 +661,39 @@ class PBITAnalyzerMainWindow(QMainWindow):
             self.tab_widget.addTab(table, tab_name)
 
         self.log(f"Создано вкладок: {self.tab_widget.count()}")
+
+    def _update_text_report(self, dfs):
+        lines = [
+            "=== РЕЗУЛЬТАТЫ АНАЛИЗА PBIT ===",
+            f"Файл: {self.pbit_path or '—'}",
+            f"Папка вывода: {self.output_dir or '—'}",
+            f"Дата анализа: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+            "=== ДОСТУПНЫЕ НАБОРЫ ДАННЫХ ===",
+        ]
+        for df_key, tab_name in TAB_MAPPING:
+            df = dfs.get(df_key)
+            if df is not None and not df.empty:
+                lines.append(f"- {tab_name}: {len(df)} строк")
+        excel_path = dfs.get("excel_path")
+        lines.extend(["", f"Excel: {excel_path if excel_path else 'не создавался'}"])
+        self.text_output.setPlainText("\n".join(lines))
+
+    def _update_stats_report(self, dfs):
+        stats_lines = [
+            "=== СТАТИСТИКА ===",
+            f"Всего вкладок с данными: {sum(1 for key, _ in TAB_MAPPING if dfs.get(key) is not None and not dfs.get(key).empty)}",
+        ]
+        total_rows = 0
+        for df_key, tab_name in TAB_MAPPING:
+            df = dfs.get(df_key)
+            if df is None or df.empty:
+                continue
+            row_count = len(df)
+            total_rows += row_count
+            stats_lines.append(f"{tab_name}: {row_count}")
+        stats_lines.extend(["", f"Всего строк по всем наборам: {total_rows}"])
+        self.stats_output.setPlainText("\n".join(stats_lines))
 
     def _create_table_from_df(self, df, df_key: str = ""):
         table = CustomTableWidget()
