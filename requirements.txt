@@ -1,0 +1,5 @@
+PyQt6==6.7.1
+pandas==2.3.3
+openpyxl==3.1.5
+pytest==8.3.3
+ruff==0.6.9
