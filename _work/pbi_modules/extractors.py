@@ -181,7 +181,11 @@ class DataModelExtractor:
     def extract_tables_ref(self):
         rows = []
         for t in self.tables:
-            rows.append({"№ таблицы": self.table_number[t["name"]], "Имя таблицы": t["name"]})
+            rows.append({
+                "№ таблицы": self.table_number[t["name"]],
+                "Имя таблицы": t["name"],
+                "Описание": t.get("description", "—")
+            })
         return pd.DataFrame(rows)
 
     def extract_columns(self):
@@ -214,9 +218,16 @@ class DataModelExtractor:
                 deps = "—"
                 if expr:
                     deps = self.dep_analyzer.find_dependencies(expr)
+                description = col.get("description", "—")
+                format_string = col.get("formatString", "—")
+                sort_by_column = col.get("sortByColumn", "—")
+                summarize_by = col.get("summarizeBy", "—")
                 rows.append({
                     "№ столбца": col_num, "№ таблицы": t_num, "Таблица": t["name"],
-                    "Столбец": col["name"], "Тип значения": value_type,
+                    "Столбец": col["name"], "Описание": description,
+                    "Тип данных": data_type, "Тип значения": value_type,
+                    "Формат": format_string, "Сортировка по столбцу": sort_by_column,
+                    "Агрегация по умолчанию": summarize_by,
                     "Формула (если вычисляемый)": formula, "Зависимости": deps,
                 })
         return pd.DataFrame(rows)
@@ -299,10 +310,11 @@ class DataModelExtractor:
                             break
                 fmt = fmt or "—"
                 folder = m.get("displayFolder", "—")
+                description = m.get("description", "—")
                 deps = self.dep_analyzer.find_dependencies(expr, exclude_measure=m_name) if expr else "—"
                 rows.append({
                     "№ меры": m_num, "№ таблицы": t_num, "Таблица": t["name"],
-                    "Мера": m_name, "Формула (DAX)": formula,
+                    "Мера": m_name, "Описание": description, "Формула (DAX)": formula,
                     "Формат": fmt, "Папка отображения": folder, "Зависимости": deps,
                 })
         return pd.DataFrame(rows)
@@ -350,10 +362,17 @@ class LayoutExtractor:
             name_id = sec.get("name", "")
             visuals_count = len(sec.get("visualContainers", []))
             is_hidden = sec.get("visibility", 0) == 1
+            width = sec.get("width")
+            height = sec.get("height")
+            if width is not None and height is not None:
+                dimensions = f"{width} x {height}"
+            else:
+                dimensions = "—"
             rows.append({
                 "№ листа": si, "Имя листа": display_name,
                 "ID листа": name_id, "Видимость": "Скрыт" if is_hidden else "Видим",
                 "Количество визуалов": visuals_count,
+                "Размеры": dimensions,
             })
         return pd.DataFrame(rows)
 
