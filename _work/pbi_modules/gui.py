@@ -887,14 +887,36 @@ class PBITAnalyzerMainWindow(QMainWindow):
         for row_idx in range(len(df)):
             for col_idx in range(len(df.columns)):
                 value = df.iloc[row_idx, col_idx]
-                if pd.isna(value):
+                
+                # Безопасная проверка на NA
+                is_na = False
+                try:
+                    na_result = pd.isna(value)
+                    if hasattr(na_result, '__len__'):
+                        # pd.isna вернул массив (например, для Series/ndarray)
+                        # считаем, что значение не является NA в смысле скаляра
+                        is_na = False
+                    else:
+                        is_na = bool(na_result)
+                except (ValueError, TypeError):
+                    # если pd.isna не может обработать тип, считаем не NA
+                    is_na = False
+
+                if is_na:
                     text = ""
+                elif hasattr(value, '__len__') and not isinstance(value, str):
+                    # Массивоподобный объект (list, tuple, Series, ndarray)
+                    text = str(value)
+                    if len(text) > 200:
+                        text = text[:200] + '...'
                 elif isinstance(value, str) and '\n' in value:
                     text = value[:200] + ('...' if len(value) > 200 else '')
                 else:
                     text = str(value)
+                    
                 item = QTableWidgetItem(text)
-                item.setToolTip(str(value) if len(str(value)) > 100 else "")
+                tooltip = str(value) if len(str(value)) > 100 else ""
+                item.setToolTip(tooltip)
                 table.setItem(row_idx, col_idx, item)
 
         header = table.horizontalHeader()
