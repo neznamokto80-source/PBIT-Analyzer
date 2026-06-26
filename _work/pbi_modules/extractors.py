@@ -295,6 +295,9 @@ class DataModelExtractor:
                 m_num = self.measure_to_number[m["name"]]
                 expr = m.get("expression", "")
                 m_name = m["name"]
+                # Нормализуем expression: если это список строк, объединяем в одну строку
+                if isinstance(expr, list):
+                    expr = "".join(str(x) for x in expr)
                 if expr:
                     formula = DAXFormatter.format_measure(m_name, expr)
                 else:
