@@ -1,5 +1,6 @@
 """
 Модуль диалога справки с вкладками.
+Данные загружаются автоматически из файлов проекта.
 """
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -10,7 +11,7 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QTextEdit,
 )
-from .help_content import HELP_TEXT, SCHEMA_DOC_TEXT, CHANGELOG_HTML
+from .help_content import HELP_TEXT, load_schema_doc_html, load_changelog_html
 
 
 class HelpDialog(QDialog):
@@ -37,21 +38,21 @@ class HelpDialog(QDialog):
         self.help_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         tabs.addTab(self.help_edit, "Справка")
 
-        # Вкладка "Схема PBIT"
+        # Вкладка "Схема PBIT" — загружается из schema_documentation.md
         self.schema_edit = QTextEdit()
         self.schema_edit.setReadOnly(True)
         self.schema_edit.setAcceptRichText(True)
-        self.schema_edit.setHtml(SCHEMA_DOC_TEXT)
+        self.schema_edit.setHtml(load_schema_doc_html())
         self.schema_edit.setStyleSheet("QTextEdit { font-size: 14px; background-color: white; }")
         self.schema_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.schema_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         tabs.addTab(self.schema_edit, "Схема PBIT")
 
-        # Вкладка "Changelog"
+        # Вкладка "Changelog" — загружается из plan/CHANGELOG.md
         self.changelog_edit = QTextEdit()
         self.changelog_edit.setReadOnly(True)
         self.changelog_edit.setAcceptRichText(True)
-        self.changelog_edit.setHtml(CHANGELOG_HTML)
+        self.changelog_edit.setHtml(load_changelog_html())
         self.changelog_edit.setStyleSheet("QTextEdit { font-size: 14px; background-color: white; }")
         self.changelog_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.changelog_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)

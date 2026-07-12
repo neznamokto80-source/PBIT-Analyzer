@@ -1,3 +1,135 @@
+import re
+from pathlib import Path
+
+
+def _md_to_html(md_text: str) -> str:
+    """Простой конвертер Markdown → HTML для справки."""
+    lines = md_text.split("\n")
+    html_lines = []
+    in_list = False
+    in_table = False
+    table_header_done = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Пустая строка — закрываем список/таблицу
+        if not stripped:
+            if in_list:
+                html_lines.append("</ul>")
+                in_list = False
+            if in_table:
+                html_lines.append("</table>")
+                in_table = False
+                table_header_done = False
+            html_lines.append("")
+            continue
+
+        # Таблица
+        if stripped.startswith("|") and stripped.endswith("|"):
+            cells = [c.strip() for c in stripped.strip("|").split("|")]
+            # Разделитель таблицы (---|---)
+            if all(re.match(r"^[-:]+$", c) for c in cells):
+                table_header_done = True
+                continue
+            if not in_table:
+                html_lines.append('<table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse;">')
+                in_table = True
+            if not table_header_done:
+                html_lines.append("<tr style='background-color:#4472C4;color:white;'>")
+                for c in cells:
+                    html_lines.append(f"  <th>{_inline(c)}</th>")
+            else:
+                html_lines.append("<tr>")
+                for c in cells:
+                    html_lines.append(f"  <td>{_inline(c)}</td>")
+            html_lines.append("</tr>")
+            continue
+
+        # Заголовки
+        if stripped.startswith("# "):
+            if in_list:
+                html_lines.append("</ul>")
+                in_list = False
+            html_lines.append(f"<h1>{_inline(stripped[2:])}</h1>")
+            continue
+        if stripped.startswith("## "):
+            if in_list:
+                html_lines.append("</ul>")
+                in_list = False
+            html_lines.append(f"<h2>{_inline(stripped[3:])}</h2>")
+            continue
+        if stripped.startswith("### "):
+            if in_list:
+                html_lines.append("</ul>")
+                in_list = False
+            html_lines.append(f"<h3>{_inline(stripped[4:])}</h3>")
+            continue
+        if stripped.startswith("#### "):
+            if in_list:
+                html_lines.append("</ul>")
+                in_list = False
+            html_lines.append(f"<h4>{_inline(stripped[5:])}</h4>")
+            continue
+
+        # Списки
+        if re.match(r"^[-*+]\s", stripped):
+            if not in_list:
+                html_lines.append("<ul>")
+                in_list = True
+            content = re.sub(r"^[-*+]\s+", "", stripped)
+            html_lines.append(f"  <li>{_inline(content)}</li>")
+            continue
+
+        # Обычный текст
+        if in_list:
+            html_lines.append("</ul>")
+            in_list = False
+        html_lines.append(f"<p>{_inline(stripped)}</p>")
+
+    if in_list:
+        html_lines.append("</ul>")
+    if in_table:
+        html_lines.append("</table>")
+
+    return "\n".join(html_lines)
+
+
+def _inline(text: str) -> str:
+    """Обработка inline-разметки: **bold**, `code`, ссылки."""
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"`(.+?)`", r"<code>\1</code>", text)
+    text = re.sub(r"\[(.+?)\]\((.+?)\)", r'<a href="\2">\1</a>', text)
+    return text
+
+
+def _find_project_root() -> Path:
+    """Найти корень проекта (содержит pyproject.toml)."""
+    start = Path(__file__).resolve().parent.parent.parent
+    for candidate in [start, *start.parents]:
+        if (candidate / "pyproject.toml").exists():
+            return candidate
+    return start
+
+
+def load_schema_doc_html() -> str:
+    """Загрузить schema_documentation.md и конвертировать в HTML."""
+    root = _find_project_root()
+    md_path = root / "schema_documentation.md"
+    if md_path.exists():
+        return _md_to_html(md_path.read_text(encoding="utf-8"))
+    return "<p><i>Файл schema_documentation.md не найден.</i></p>"
+
+
+def load_changelog_html() -> str:
+    """Загрузить plan/CHANGELOG.md и конвертировать в HTML."""
+    root = _find_project_root()
+    md_path = root / "plan" / "CHANGELOG.md"
+    if md_path.exists():
+        return _md_to_html(md_path.read_text(encoding="utf-8"))
+    return "<p><i>Файл plan/CHANGELOG.md не найден.</i></p>"
+
+
 HELP_TEXT = """
 <h2>PBIT Analyzer — Справка</h2>
 <p><b>Описание:</b> Приложение для анализа Power BI Template файлов (.pbit) с построением lineage и опциональной выгрузкой в Excel.</p>
@@ -111,246 +243,4 @@ HELP_TEXT = """
 
 <p><b>Контакт разработчика:</b> @BDV_80</p>
 <p><b>Версия:</b> 2.1</p>
-"""
-
-
-SCHEMA_DOC_TEXT = """
-<h2>Структура файлов PBIT</h2>
-
-<h3>Общая информация</h3>
-<p>Файлы <b>.pbit</b> представляют собой ZIP-архивы, содержащие несколько файлов без расширения, которые являются JSON в кодировке <b>UTF-16-LE</b> (иногда UTF-16). Основные файлы для анализа:</p>
-<ul>
-    <li><b>DataModelSchema</b> — содержит модель данных: таблицы, столбцы, меры, связи, выражения, настройки.</li>
-    <li><b>Report/Layout</b> — содержит layout отчета: секции, визуальные элементы, фильтры, настройки темы.</li>
-</ul>
-
-<h3>DataModelSchema</h3>
-
-<h4>Ключи верхнего уровня</h4>
-<ul>
-    <li><code>name</code> — идентификатор модели (GUID)</li>
-    <li><code>compatibilityLevel</code> — уровень совместимости Power BI (например, 1601)</li>
-    <li><code>model</code> — объект модели (основной контент)</li>
-</ul>
-
-<h4>Структура model</h4>
-<ul>
-    <li><code>culture</code> — локаль (например, "ru-RU")</li>
-    <li><code>dataAccessOptions</code> — настройки доступа к данным</li>
-    <li><code>defaultPowerBIDataSourceVersion</code> — версия источника данных</li>
-    <li><code>sourceQueryCulture</code> — локаль для запросов</li>
-    <li><code>tables[]</code> — массив таблиц</li>
-    <li><code>relationships[]</code> — массив связей между таблицами</li>
-    <li><code>cultures[]</code> — поддерживаемые локали</li>
-    <li><code>expressions[]</code> — глобальные выражения</li>
-    <li><code>annotations[]</code> — аннотации модели</li>
-</ul>
-
-<h4>Структура tables[]</h4>
-<ul>
-    <li><code>name</code> — имя таблицы</li>
-    <li><code>lineageTag</code> — тег происхождения</li>
-    <li><code>columns[]</code> — массив столбцов</li>
-    <li><code>partitions[]</code> — массив разделов</li>
-    <li><code>measures[]</code> — массив мер</li>
-    <li><code>annotations[]</code> — аннотации таблицы</li>
-    <li><code>isHidden</code> — скрыта ли таблица</li>
-    <li><code>description</code> — описание таблицы</li>
-    <li><code>sourceLineageTag</code> — тег происхождения источника</li>
-</ul>
-
-<h4>Структура columns[]</h4>
-<ul>
-    <li><code>name</code> — имя столбца</li>
-    <li><code>description</code> — описание столбца</li>
-    <li><code>dataType</code> — тип данных ("int64", "double", "string", "dateTime", "boolean", "currency", "binary")</li>
-    <li><code>type</code> — тип столбца ("calculated", "calculatedTableColumn", "rowNumber", "data")</li>
-    <li><code>expression</code> — DAX-выражение для вычисляемых столбцов</li>
-    <li><code>formatString</code> — строка форматирования (например, "0.00%")</li>
-    <li><code>sortByColumn</code> — имя столбца для сортировки</li>
-    <li><code>summarizeBy</code> — агрегация по умолчанию ("sum", "average", "count", ...)</li>
-    <li><code>lineageTag</code> — тег происхождения</li>
-    <li><code>annotations[]</code> — аннотации столбца</li>
-</ul>
-
-<h4>Структура measures[]</h4>
-<ul>
-    <li><code>name</code> — имя меры</li>
-    <li><code>expression</code> — DAX-выражение</li>
-    <li><code>formatString</code> — строка форматирования</li>
-    <li><code>formatStringDefinition</code> — определение формата (объект)</li>
-    <li><code>description</code> — описание меры</li>
-    <li><code>lineageTag</code> — тег происхождения</li>
-    <li><code>annotations[]</code> — аннотации меры</li>
-</ul>
-
-<h4>Структура partitions[]</h4>
-<ul>
-    <li><code>name</code> — имя раздела</li>
-    <li><code>source</code> — объект источника:
-        <ul>
-            <li><code>type</code> — тип источника ("m", "calculated", "entity", "structuredData")</li>
-            <li><code>expression</code> — выражение источника (M или DAX)</li>
-        </ul>
-    </li>
-    <li><code>mode</code> — режим раздела</li>
-</ul>
-
-<h4>Структура relationships[]</h4>
-<ul>
-    <li><code>name</code> — имя связи</li>
-    <li><code>fromTable</code> — исходная таблица</li>
-    <li><code>fromColumn</code> — исходный столбец</li>
-    <li><code>toTable</code> — целевая таблица</li>
-    <li><code>toColumn</code> — целевой столбец</li>
-    <li><code>isActive</code> — активна ли связь</li>
-    <li><code>crossFilteringBehavior</code> — поведение перекрестной фильтрации</li>
-</ul>
-
-<h4>Структура expressions[]</h4>
-<ul>
-    <li><code>name</code> — имя выражения</li>
-    <li><code>expression</code> — DAX-выражение</li>
-    <li><code>description</code> — описание</li>
-</ul>
-
-<h3>Layout (Report/Layout)</h3>
-
-<h4>Ключи верхнего уровня</h4>
-<ul>
-    <li><code>id</code> — идентификатор отчета (обычно 0)</li>
-    <li><code>filters</code> — фильтры уровня отчета (JSON строка)</li>
-    <li><code>resourcePackages[]</code> — массив ресурсных пакетов</li>
-    <li><code>sections[]</code> — массив секций (страниц)</li>
-    <li><code>config</code> — конфигурация отчета (JSON строка)</li>
-    <li><code>layoutOptimization</code> — уровень оптимизации layout</li>
-</ul>
-
-<h4>Структура sections[]</h4>
-<ul>
-    <li><code>id</code> — идентификатор секции</li>
-    <li><code>name</code> — внутреннее имя</li>
-    <li><code>displayName</code> — отображаемое имя (название страницы)</li>
-    <li><code>filters</code> — фильтры секции (JSON строка)</li>
-    <li><code>ordinal</code> — порядковый номер</li>
-    <li><code>visualContainers[]</code> — массив визуальных контейнеров</li>
-    <li><code>config</code> — конфигурация секции (JSON строка)</li>
-    <li><code>displayOption</code> — опция отображения</li>
-    <li><code>width</code>, <code>height</code> — размеры секции</li>
-</ul>
-
-<h4>Структура visualContainers[]</h4>
-<ul>
-    <li><code>x</code>, <code>y</code>, <code>z</code> — координаты</li>
-    <li><code>width</code>, <code>height</code> — размеры</li>
-    <li><code>config</code> — конфигурация визуала (JSON строка)</li>
-    <li><code>filters</code> — фильтры визуала (JSON строка)</li>
-    <li><code>tabOrder</code> — порядок табуляции</li>
-</ul>
-
-<h4>Конфигурация визуала (config)</h4>
-<p>После парсинга JSON содержит:</p>
-<ul>
-    <li><code>name</code> — имя визуала</li>
-    <li><code>layouts[]</code> — массив layout'ов</li>
-    <li><code>singleVisual</code> — объект визуала:
-        <ul>
-            <li><code>visualType</code> — тип визуала ("slicer", "barChart", "lineChart", "table", ...)</li>
-            <li><code>projections</code> — проекции (роли данных)</li>
-            <li><code>prototypeQuery</code> — прототип запроса</li>
-            <li><code>objects</code> — объекты стилей и форматов</li>
-            <li><code>filterExpressionMetadata</code> — метаданные фильтров</li>
-        </ul>
-    </li>
-</ul>
-
-<h3>Пути к данным (примеры)</h3>
-<h4>DataModelSchema</h4>
-<ul>
-    <li><code>model.tables[0].name</code> — имя первой таблицы</li>
-    <li><code>model.tables[0].columns[0].formatString</code> — формат первого столбца</li>
-    <li><code>model.tables[0].measures[0].description</code> — описание первой меры</li>
-    <li><code>model.relationships[0].crossFilteringBehavior</code> — поведение фильтрации связи</li>
-    <li><code>model.expressions[0].expression</code> — глобальное выражение</li>
-</ul>
-<h4>Layout</h4>
-<ul>
-    <li><code>sections[0].displayName</code> — название первой страницы</li>
-    <li><code>sections[0].visualContainers[0].config → singleVisual.visualType</code> — тип первого визуала</li>
-    <li><code>sections[0].visualContainers[0].filters</code> — фильтры первого визуала</li>
-    <li><code>config → themeCollection.baseTheme.name</code> — имя базовой темы</li>
-</ul>
-"""
-
-
-CHANGELOG_HTML = """
-<h2>Changelog — История изменений</h2>
-
-<h3>[2.1.0] — 2026-07-12</h3>
-
-<h4>Добавлено</h4>
-<ul>
-    <li><b>Горячие клавиши</b> (задача 2.1):
-        <ul>
-            <li><code>Ctrl+O</code> — открыть диалог выбора PBIT файла</li>
-            <li><code>Ctrl+S</code> — выгрузить данные в Excel</li>
-            <li><code>Ctrl+H</code> — открыть справку</li>
-            <li><code>Ctrl+Q</code> — выйти из приложения</li>
-        </ul>
-    </li>
-    <li><b>Drag-and-drop</b> (задача 2.2):
-        <ul>
-            <li>Перетаскивание .pbit файлов из проводника в окно приложения</li>
-            <li>Автоматический выбор файла при drop</li>
-        </ul>
-    </li>
-    <li><b>Поиск по таблицам</b> (задача 2.3):
-        <ul>
-            <li>Строка поиска над каждой таблицей вкладки "Результаты парсинга"</li>
-            <li>Фильтрация по содержимому любой колонки</li>
-            <li>Кнопки "Найти" и "Сброс"</li>
-            <li>Поддержка Enter для быстрого поиска</li>
-        </ul>
-    </li>
-    <li><b>QSS-стили</b> (задача 2.4):
-        <ul>
-            <li>Вынесены все inline-стили в <code>styles.qss</code></li>
-            <li>Использование objectName для привязки стилей к виджетам</li>
-            <li>Централизованное управление внешним видом приложения</li>
-        </ul>
-    </li>
-    <li><b>Вкладка "Схема PBIT"</b> — справочная документация по структуре DataModelSchema и Layout</li>
-    <li><b>Вкладка "Changelog"</b> — история изменений в диалоге справки</li>
-    <li><b>Обновлена справка</b> — описание перетаскивания, поиска, горячих клавиш, версия 2.1</li>
-</ul>
-
-<h4>Изменено</h4>
-<ul>
-    <li>Удалены emoji-иконки из кнопок (стилизуются через QSS)</li>
-    <li>Кнопки используют objectName вместо inline setStyleSheet</li>
-    <li>Инициализация <code>_original_dfs</code> через <code>__init__</code> вместо <code>hasattr()</code></li>
-    <li>Кнопка "Справка" только в заголовке (убрана дублирующая из левой панели)</li>
-</ul>
-
-<h4>Исправлено</h4>
-<ul>
-    <li><code>_original_dfs</code> теперь инициализируется в <code>__init__</code></li>
-    <li>Убраны дублирующиеся проверки <code>hasattr()</code></li>
-    <li><code>QShortcut</code> импортируется из <code>PyQt6.QtGui</code></li>
-</ul>
-
-<h3>Предыдущие версии (git)</h3>
-<table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse;">
-    <tr style="background-color: #4472C4; color: white;">
-        <th>Коммит</th><th>Описание</th>
-    </tr>
-    <tr><td><code>049f726</code></td><td>anci</td></tr>
-    <tr><td><code>e76a6d1</code></td><td>поправлен поиск зависимостей</td></tr>
-    <tr><td><code>e547270</code></td><td>Merge branch 'main'</td></tr>
-    <tr><td><code>4aab224</code></td><td>Create create_exe.bat</td></tr>
-    <tr><td><code>38e5884</code></td><td>Исправление ошибки ValueError в _create_table_from_df</td></tr>
-    <tr><td><code>7abcde8</code></td><td>улучшения</td></tr>
-    <tr><td><code>5dc1721</code></td><td>Добавлены поля width и height для листов</td></tr>
-    <tr><td><code>5e8149c</code></td><td>обновлен поиск</td></tr>
-</table>
 """
