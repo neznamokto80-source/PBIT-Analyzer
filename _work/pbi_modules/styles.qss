@@ -1,0 +1,156 @@
+/* ============================================================
+   PBIT Analyzer — QSS Stylesheet
+   ============================================================ */
+
+/* --- Header --- */
+#headerTitle {
+    font-size: 18px;
+    font-weight: bold;
+}
+
+/* --- Buttons --- */
+QPushButton {
+    font-size: 12px;
+    padding: 8px 12px;
+    border-radius: 5px;
+    border: none;
+    color: white;
+}
+
+QPushButton#btnAnalyze {
+    background-color: #4CAF50;
+    font-weight: bold;
+    font-size: 14px;
+    padding: 15px;
+}
+QPushButton#btnAnalyze:hover { background-color: #45a049; }
+QPushButton#btnAnalyze:disabled { background-color: #cccccc; }
+
+QPushButton#btnExportExcel {
+    background-color: #9C27B0;
+}
+QPushButton#btnExportExcel:hover { background-color: #7b1fa2; }
+QPushButton#btnExportExcel:disabled { background-color: #cccccc; }
+
+QPushButton#btnOpenExcel {
+    background-color: #2196F3;
+}
+QPushButton#btnOpenExcel:hover { background-color: #0b7dda; }
+QPushButton#btnOpenExcel:disabled { background-color: #cccccc; }
+
+QPushButton#btnOpenFolder {
+    background-color: #FF9800;
+}
+QPushButton#btnOpenFolder:hover { background-color: #e68900; }
+QPushButton#btnOpenFolder:disabled { background-color: #cccccc; }
+
+QPushButton#btnHelp {
+    background-color: #9C27B0;
+}
+
+QPushButton#btnFindLineage {
+    background-color: #00897B;
+}
+QPushButton#btnFindLineage:hover { background-color: #00796b; }
+QPushButton#btnFindLineage:disabled { background-color: #cccccc; }
+
+QPushButton#btnClearFilter {
+    background-color: #e53935;
+}
+QPushButton#btnClearFilter:hover { background-color: #c62828; }
+QPushButton#btnClearFilter:disabled { background-color: #cccccc; }
+
+QPushButton#btnSelectFile {
+    background-color: #5C6BC0;
+}
+QPushButton#btnSelectFile:hover { background-color: #3F51B5; }
+
+QPushButton#btnSelectDir {
+    background-color: #5C6BC0;
+}
+QPushButton#btnSelectDir:hover { background-color: #3F51B5; }
+
+/* --- Search bar --- */
+QLineEdit#searchInput {
+    padding: 6px 10px;
+    font-size: 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #fafafa;
+}
+QLineEdit#searchInput:focus {
+    border: 1px solid #2196F3;
+    background-color: white;
+}
+
+QPushButton#btnSearch {
+    background-color: #2196F3;
+    padding: 6px 12px;
+    font-size: 12px;
+}
+QPushButton#btnSearch:hover { background-color: #0b7dda; }
+
+QPushButton#btnClearSearch {
+    background-color: #757575;
+    padding: 6px 12px;
+    font-size: 12px;
+}
+QPushButton#btnClearSearch:hover { background-color: #616161; }
+
+/* --- Log panel --- */
+QTextEdit#logText {
+    background-color: #1e1e1e;
+    color: #d4d4d4;
+    font-family: Consolas, monospace;
+    font-size: 10px;
+}
+
+/* --- Info label --- */
+QLabel#infoLabel {
+    padding: 6px;
+    color: #333;
+}
+
+/* --- Path labels --- */
+QLabel#pbitPathLabel {
+    color: gray;
+    padding: 5px;
+}
+QLabel#pbitPathLabelActive {
+    color: black;
+    padding: 5px;
+    font-weight: bold;
+}
+QLabel#outputDirLabel {
+    padding: 5px;
+}
+
+/* --- Tab widgets --- */
+QTabWidget::pane {
+    border: 1px solid #ccc;
+    border-radius: 3px;
+}
+
+/* --- Group boxes --- */
+QGroupBox {
+    font-weight: bold;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    margin-top: 10px;
+    padding-top: 15px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 5px;
+}
+
+/* --- Context menu --- */
+QMenu {
+    background-color: white;
+    border: 1px solid #ccc;
+}
+QMenu::item:selected {
+    background-color: #2196F3;
+    color: white;
+}

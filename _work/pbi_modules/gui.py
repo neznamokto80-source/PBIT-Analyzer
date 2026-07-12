@@ -4,23 +4,24 @@ import subprocess
 import sys
 import traceback
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 from PyQt6.QtCore import QThread, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QFont
+from PyQt6.QtGui import QAction, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QAbstractItemView,
     QCheckBox,
     QComboBox,
     QCompleter,
-    QDialog,
     QFileDialog,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -37,9 +38,15 @@ from PyQt6.QtWidgets import (
 
 from .analyzer import analyze_pbit_file
 from .excel_report import ExcelReportGenerator
-from .help_content import HELP_TEXT
 from .help_dialog import HelpDialog
 from .lineage import build_lineage_directions
+
+
+def _load_stylesheet() -> str:
+    qss_path = Path(__file__).parent / "styles.qss"
+    if qss_path.exists():
+        return qss_path.read_text(encoding="utf-8")
+    return ""
 
 TAB_MAPPING = [
     ('tables_ref', '📋 Справочник таблиц'),
@@ -191,6 +198,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.current_dfs = {}
+        self._original_dfs = {}
         self.lineage_focus_map = {}
         self.output_dir = ""
         self.pbit_path = ""
@@ -210,9 +218,109 @@ class PBITAnalyzerMainWindow(QMainWindow):
         if self.output_dir and not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir, exist_ok=True)
 
+    # ============================================================
+    # Keyboard shortcuts (Task 2.1)
+    # ============================================================
+
+    def _setup_shortcuts(self):
+        shortcut_open = QShortcut(QKeySequence("Ctrl+O"), self)
+        shortcut_open.activated.connect(self._select_pbit_file)
+
+        shortcut_save = QShortcut(QKeySequence("Ctrl+S"), self)
+        shortcut_save.activated.connect(self._export_to_excel)
+
+        shortcut_help = QShortcut(QKeySequence("Ctrl+H"), self)
+        shortcut_help.activated.connect(self._show_help)
+
+        shortcut_quit = QShortcut(QKeySequence("Ctrl+Q"), self)
+        shortcut_quit.activated.connect(self.close)
+
+    # ============================================================
+    # Drag-and-drop (Task 2.2)
+    # ============================================================
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.toLocalFile().lower().endswith(".pbit"):
+                    event.acceptProposedAction()
+                    return
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            file_path = url.toLocalFile()
+            if file_path.lower().endswith(".pbit"):
+                self.pbit_path = file_path
+                self.pbit_path_edit.setText(file_path)
+                self.pbit_path_edit.setObjectName("pbitPathLabelActive")
+                self.pbit_path_edit.setStyleSheet("color: black; padding: 5px; font-weight: bold;")
+                if not self.output_dir:
+                    self.output_dir = os.path.dirname(file_path)
+                    self.output_dir_edit.setText(self.output_dir)
+                self.log(f"Файл перетащен: {file_path}")
+                self.statusBar().showMessage(f"Файл загружен: {os.path.basename(file_path)}")
+                return
+
+    # ============================================================
+    # Search / filter in tabs (Task 2.3)
+    # ============================================================
+
+    def _create_search_bar(self, table: QTableWidget) -> QWidget:
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        search_input = QLineEdit()
+        search_input.setObjectName("searchInput")
+        search_input.setPlaceholderText("Поиск по таблице...")
+        search_input.setClearButtonEnabled(True)
+        layout.addWidget(search_input, 1)
+
+        btn_search = QPushButton("Найти")
+        btn_search.setObjectName("btnSearch")
+        btn_search.clicked.connect(lambda: self._filter_table(table, search_input.text()))
+        layout.addWidget(btn_search)
+
+        btn_clear = QPushButton("Сброс")
+        btn_clear.setObjectName("btnClearSearch")
+        btn_clear.clicked.connect(lambda: self._clear_table_filter(table, search_input))
+        layout.addWidget(btn_clear)
+
+        search_input.returnPressed.connect(lambda: self._filter_table(table, search_input.text()))
+
+        return widget
+
+    def _filter_table(self, table: QTableWidget, query: str):
+        query = query.strip().lower()
+        for row in range(table.rowCount()):
+            match = False
+            if not query:
+                match = True
+            else:
+                for col in range(table.columnCount()):
+                    item = table.item(row, col)
+                    if item and query in item.text().lower():
+                        match = True
+                        break
+            table.setRowHidden(row, not match)
+
+    def _clear_table_filter(self, table: QTableWidget, search_input: QLineEdit):
+        search_input.clear()
+        for row in range(table.rowCount()):
+            table.setRowHidden(row, False)
+
     def init_ui(self):
         self.setWindowTitle("PBIT Analyzer — Анализатор Power BI Template файлов")
         self.setGeometry(100, 100, 1400, 900)
+
+        # Load QSS stylesheet
+        stylesheet = _load_stylesheet()
+        if stylesheet:
+            self.setStyleSheet(stylesheet)
+
+        # Enable drag-and-drop for .pbit files
+        self.setAcceptDrops(True)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -248,15 +356,19 @@ class PBITAnalyzerMainWindow(QMainWindow):
         self.progress_bar.setVisible(False)
         self.statusBar().addPermanentWidget(self.progress_bar)
 
+        # --- Keyboard shortcuts ---
+        self._setup_shortcuts()
+
     def _create_header_panel(self):
         panel = QWidget()
         layout = QHBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        title_label = QLabel("🔍 PBIT Analyzer")
-        title_label.setStyleSheet("font-size: 18px; font-weight: bold;")
+        title_label = QLabel("PBIT Analyzer")
+        title_label.setObjectName("headerTitle")
         layout.addWidget(title_label)
         layout.addStretch()
-        help_button = QPushButton("❓ Справка")
+        help_button = QPushButton("Справка")
+        help_button.setObjectName("btnHelp")
         help_button.clicked.connect(self._show_help)
         layout.addWidget(help_button)
         return panel
@@ -268,17 +380,19 @@ class PBITAnalyzerMainWindow(QMainWindow):
 
         layout.addWidget(QLabel("PBIT файл:"), 0, 0)
         self.pbit_path_edit = QLabel("Файл не выбран")
-        self.pbit_path_edit.setStyleSheet("color: gray; padding: 5px;")
+        self.pbit_path_edit.setObjectName("pbitPathLabel")
         layout.addWidget(self.pbit_path_edit, 0, 1)
-        btn_select_file = QPushButton("📁 Выбрать PBIT")
+        btn_select_file = QPushButton("Выбрать PBIT")
+        btn_select_file.setObjectName("btnSelectFile")
         btn_select_file.clicked.connect(self._select_pbit_file)
         layout.addWidget(btn_select_file, 0, 2)
 
         layout.addWidget(QLabel("Папка вывода:"), 1, 0)
         self.output_dir_edit = QLabel(self.output_dir)
-        self.output_dir_edit.setStyleSheet("padding: 5px;")
+        self.output_dir_edit.setObjectName("outputDirLabel")
         layout.addWidget(self.output_dir_edit, 1, 1)
-        btn_select_dir = QPushButton("📂 Выбрать папку")
+        btn_select_dir = QPushButton("Выбрать папку")
+        btn_select_dir.setObjectName("btnSelectDir")
         btn_select_dir.clicked.connect(self._select_output_dir)
         layout.addWidget(btn_select_dir, 1, 2)
 
@@ -302,11 +416,13 @@ class PBITAnalyzerMainWindow(QMainWindow):
         self.lineage_focus_combo.setToolTip("Выберите объект из списка или введите вручную")
         self.lineage_focus_combo.setEnabled(False)
         lineage_layout.addWidget(self.lineage_focus_combo, 1)
-        self.btn_find_lineage = QPushButton("🔎 Найти")
+        self.btn_find_lineage = QPushButton("Найти")
+        self.btn_find_lineage.setObjectName("btnFindLineage")
         self.btn_find_lineage.setEnabled(False)
         self.btn_find_lineage.clicked.connect(self._apply_lineage_focus)
         lineage_layout.addWidget(self.btn_find_lineage)
-        self.btn_clear_filter = QPushButton("🗑️ Очистить фильтр")
+        self.btn_clear_filter = QPushButton("Очистить фильтр")
+        self.btn_clear_filter.setObjectName("btnClearFilter")
         self.btn_clear_filter.setEnabled(False)
         self.btn_clear_filter.clicked.connect(self._clear_lineage_filter)
         lineage_layout.addWidget(self.btn_clear_filter)
@@ -319,69 +435,30 @@ class PBITAnalyzerMainWindow(QMainWindow):
         layout = QVBoxLayout(panel)
         layout.setSpacing(10)
 
-        self.btn_analyze = QPushButton("🚀 Начать анализ")
-        self.btn_analyze.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50; color: white; font-weight: bold;
-                font-size: 14px; padding: 15px; border-radius: 5px;
-            }
-            QPushButton:hover { background-color: #45a049; }
-            QPushButton:disabled { background-color: #cccccc; }
-        """)
+        self.btn_analyze = QPushButton("Начать анализ")
+        self.btn_analyze.setObjectName("btnAnalyze")
         self.btn_analyze.clicked.connect(self._start_analysis)
         layout.addWidget(self.btn_analyze)
 
-        self.btn_export_excel = QPushButton("📥 Выгрузить в Excel")
-        self.btn_export_excel.setStyleSheet("""
-            QPushButton {
-                background-color: #9C27B0; color: white; font-size: 12px;
-                padding: 10px; border-radius: 5px;
-            }
-            QPushButton:hover { background-color: #7b1fa2; }
-            QPushButton:disabled { background-color: #cccccc; }
-        """)
+        self.btn_export_excel = QPushButton("Выгрузить в Excel")
+        self.btn_export_excel.setObjectName("btnExportExcel")
         self.btn_export_excel.clicked.connect(self._export_to_excel)
         self.btn_export_excel.setEnabled(False)
         layout.addWidget(self.btn_export_excel)
 
-        self.btn_open_excel = QPushButton("📊 Открыть Excel")
-        self.btn_open_excel.setStyleSheet("""
-            QPushButton {
-                background-color: #2196F3; color: white; font-size: 12px;
-                padding: 10px; border-radius: 5px;
-            }
-            QPushButton:hover { background-color: #0b7dda; }
-            QPushButton:disabled { background-color: #cccccc; }
-        """)
+        self.btn_open_excel = QPushButton("Открыть Excel")
+        self.btn_open_excel.setObjectName("btnOpenExcel")
         self.btn_open_excel.clicked.connect(self._open_excel)
         self.btn_open_excel.setEnabled(False)
         layout.addWidget(self.btn_open_excel)
 
-        self.btn_open_folder = QPushButton("📁 Открыть папку")
-        self.btn_open_folder.setStyleSheet("""
-            QPushButton {
-                background-color: #FF9800; color: white; font-size: 12px;
-                padding: 10px; border-radius: 5px;
-            }
-            QPushButton:hover { background-color: #e68900; }
-            QPushButton:disabled { background-color: #cccccc; }
-        """)
+        self.btn_open_folder = QPushButton("Открыть папку")
+        self.btn_open_folder.setObjectName("btnOpenFolder")
         self.btn_open_folder.clicked.connect(self._open_output_folder)
         self.btn_open_folder.setEnabled(False)
         layout.addWidget(self.btn_open_folder)
 
         layout.addStretch()
-
-        btn_help = QPushButton("❓ Справка")
-        btn_help.setStyleSheet("""
-            QPushButton {
-                background-color: #9C27B0; color: white; font-size: 12px;
-                padding: 10px; border-radius: 5px;
-            }
-            QPushButton:hover { background-color: #7b1fa2; }
-        """)
-        btn_help.clicked.connect(self._show_help)
-        layout.addWidget(btn_help)
 
         panel.setMaximumWidth(200)
         return panel
@@ -414,8 +491,8 @@ class PBITAnalyzerMainWindow(QMainWindow):
         layout.addWidget(self.result_tabs, 1)
 
         self.info_label = QLabel("Готово к работе. Выберите PBIT-файл и нажмите 'Начать анализ'.")
+        self.info_label.setObjectName("infoLabel")
         self.info_label.setWordWrap(True)
-        self.info_label.setStyleSheet("padding: 6px; color: #333;")
         layout.addWidget(self.info_label)
         return panel
 
@@ -423,9 +500,8 @@ class PBITAnalyzerMainWindow(QMainWindow):
         panel = QGroupBox("Лог работы")
         layout = QVBoxLayout(panel)
         self.log_text = QTextEdit()
+        self.log_text.setObjectName("logText")
         self.log_text.setReadOnly(True)
-        self.log_text.setFont(QFont("Consolas", 10))
-        self.log_text.setStyleSheet("background-color: #1e1e1e; color: #d4d4d4;")
         layout.addWidget(self.log_text)
         btn_clear_log = QPushButton("Очистить лог")
         btn_clear_log.clicked.connect(lambda: self.log_text.clear())
@@ -439,6 +515,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
         if file_path:
             self.pbit_path = file_path
             self.pbit_path_edit.setText(file_path)
+            self.pbit_path_edit.setObjectName("pbitPathLabelActive")
             self.pbit_path_edit.setStyleSheet("color: black; padding: 5px; font-weight: bold;")
             if not self.output_dir:
                 self.output_dir = os.path.dirname(file_path)
@@ -467,8 +544,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
         self.btn_clear_filter.setEnabled(False)
         self.lineage_focus_combo.clear()
         self.lineage_focus_map = {}
-        if hasattr(self, '_original_dfs'):
-            self._original_dfs = None
+        self._original_dfs = {}
 
         keep_temp = self.chk_keep_temp.isChecked()
         create_excel = self.chk_create_excel.isChecked()
@@ -705,7 +781,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
                 node_type = ""
 
         # Сохраняем оригинальные данные, если ещё не сохранены
-        if not hasattr(self, '_original_dfs'):
+        if not self._original_dfs:
             self._original_dfs = self.current_dfs.copy()
 
         # Вычисляем ID визуалов, связанных с focus_id через lineage
@@ -805,7 +881,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
 
     def _clear_lineage_filter(self):
         """Очистить примененный фильтр и показать все данные."""
-        if not hasattr(self, '_original_dfs') or self._original_dfs is None:
+        if not self._original_dfs:
             QMessageBox.information(self, "Информация", "Фильтр не применялся.")
             return
         
@@ -841,7 +917,17 @@ class PBITAnalyzerMainWindow(QMainWindow):
             if df is None or df.empty:
                 continue
             table = self._create_table_from_df(df, df_key=df_key)
-            self.tab_widget.addTab(table, tab_name)
+
+            # Wrap table with search bar (Task 2.3)
+            tab_container = QWidget()
+            tab_layout = QVBoxLayout(tab_container)
+            tab_layout.setContentsMargins(0, 0, 0, 0)
+            tab_layout.setSpacing(2)
+            search_bar = self._create_search_bar(table)
+            tab_layout.addWidget(search_bar)
+            tab_layout.addWidget(table, 1)
+
+            self.tab_widget.addTab(tab_container, tab_name)
 
         self.log(f"Создано вкладок: {self.tab_widget.count()}")
 
