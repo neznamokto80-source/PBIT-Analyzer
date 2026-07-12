@@ -281,3 +281,76 @@ SCHEMA_DOC_TEXT = """
     <li><code>config → themeCollection.baseTheme.name</code> — имя базовой темы</li>
 </ul>
 """
+
+
+CHANGELOG_HTML = """
+<h2>Changelog — История изменений</h2>
+
+<h3>[2.1.0] — 2026-07-12</h3>
+
+<h4>Добавлено</h4>
+<ul>
+    <li><b>Горячие клавиши</b> (задача 2.1):
+        <ul>
+            <li><code>Ctrl+O</code> — открыть диалог выбора PBIT файла</li>
+            <li><code>Ctrl+S</code> — выгрузить данные в Excel</li>
+            <li><code>Ctrl+H</code> — открыть справку</li>
+            <li><code>Ctrl+Q</code> — выйти из приложения</li>
+        </ul>
+    </li>
+    <li><b>Drag-and-drop</b> (задача 2.2):
+        <ul>
+            <li>Перетаскивание .pbit файлов из проводника в окно приложения</li>
+            <li>Автоматический выбор файла при drop</li>
+        </ul>
+    </li>
+    <li><b>Поиск по таблицам</b> (задача 2.3):
+        <ul>
+            <li>Строка поиска над каждой таблицей вкладки "Результаты парсинга"</li>
+            <li>Фильтрация по содержимому любой колонки</li>
+            <li>Кнопки "Найти" и "Сброс"</li>
+            <li>Поддержка Enter для быстрого поиска</li>
+        </ul>
+    </li>
+    <li><b>QSS-стили</b> (задача 2.4):
+        <ul>
+            <li>Вынесены все inline-стили в <code>styles.qss</code></li>
+            <li>Использование objectName для привязки стилей к виджетам</li>
+            <li>Централизованное управление внешним видом приложения</li>
+        </ul>
+    </li>
+    <li><b>Вкладка "Схема PBIT"</b> — справочная документация по структуре DataModelSchema и Layout</li>
+    <li><b>Вкладка "Changelog"</b> — история изменений в диалоге справки</li>
+    <li><b>Обновлена справка</b> — описание перетаскивания, поиска, горячих клавиш, версия 2.1</li>
+</ul>
+
+<h4>Изменено</h4>
+<ul>
+    <li>Удалены emoji-иконки из кнопок (стилизуются через QSS)</li>
+    <li>Кнопки используют objectName вместо inline setStyleSheet</li>
+    <li>Инициализация <code>_original_dfs</code> через <code>__init__</code> вместо <code>hasattr()</code></li>
+    <li>Кнопка "Справка" только в заголовке (убрана дублирующая из левой панели)</li>
+</ul>
+
+<h4>Исправлено</h4>
+<ul>
+    <li><code>_original_dfs</code> теперь инициализируется в <code>__init__</code></li>
+    <li>Убраны дублирующиеся проверки <code>hasattr()</code></li>
+    <li><code>QShortcut</code> импортируется из <code>PyQt6.QtGui</code></li>
+</ul>
+
+<h3>Предыдущие версии (git)</h3>
+<table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse;">
+    <tr style="background-color: #4472C4; color: white;">
+        <th>Коммит</th><th>Описание</th>
+    </tr>
+    <tr><td><code>049f726</code></td><td>anci</td></tr>
+    <tr><td><code>e76a6d1</code></td><td>поправлен поиск зависимостей</td></tr>
+    <tr><td><code>e547270</code></td><td>Merge branch 'main'</td></tr>
+    <tr><td><code>4aab224</code></td><td>Create create_exe.bat</td></tr>
+    <tr><td><code>38e5884</code></td><td>Исправление ошибки ValueError в _create_table_from_df</td></tr>
+    <tr><td><code>7abcde8</code></td><td>улучшения</td></tr>
+    <tr><td><code>5dc1721</code></td><td>Добавлены поля width и height для листов</td></tr>
+    <tr><td><code>5e8149c</code></td><td>обновлен поиск</td></tr>
+</table>
+"""
