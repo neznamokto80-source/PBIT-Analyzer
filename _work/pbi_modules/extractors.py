@@ -1338,7 +1338,9 @@ def load_json_utf16(file_path: str) -> dict:
         try:
             with open(file_path, "r", encoding=encoding) as file:
                 return json.load(file)
-        except (UnicodeDecodeError, json.JSONDecodeError):
+        except (UnicodeError, json.JSONDecodeError):
+            # UnicodeError (а не только UnicodeDecodeError): utf-16 без BOM
+            # поднимает базовый UnicodeError, и без этого падал fallback на utf-8.
             continue
     raise ValueError(f"Не удалось прочитать JSON-файл с поддерживаемыми кодировками: {file_path}")
 
