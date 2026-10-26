@@ -34,9 +34,13 @@ def self_test() -> int:
         print(f"Не удалось загрузить зависимости ({error}).")
         return 1
 
-    app = QApplication([])
-    PBITAnalyzerMainWindow()
-    app.quit()
+    try:
+        app = QApplication([])
+        PBITAnalyzerMainWindow()
+        app.quit()
+    except Exception as error:  # noqa: BLE001 — smoke-тест обязан вернуть код, а не упасть
+        print(f"Self-test failed: {type(error).__name__}: {error}")
+        return 2
     print("Self-test OK")
     return 0
 

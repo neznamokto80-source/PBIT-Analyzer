@@ -50,8 +50,11 @@ jobs:
         run: |
           $exe = Get-ChildItem dist\*.exe | Select-Object -First 1
           Write-Host "Запуск $($exe.Name) --self-test"
-          & $exe.FullName --self-test
-          if ($LASTEXITCODE -ne 0) { throw "Self-test failed: $LASTEXITCODE" }
+          # Start-Process нужен для GUI-сборки: PowerShell не ждёт windowed EXE
+          # и не выставляет $LASTEXITCODE, а ExitCode процесса доступен.
+          $process = Start-Process -FilePath $exe.FullName -ArgumentList "--self-test" -Wait -PassThru
+          Write-Host "ExitCode: $($process.ExitCode)"
+          if ($process.ExitCode -ne 0) { throw "Self-test failed: $($process.ExitCode)" }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
