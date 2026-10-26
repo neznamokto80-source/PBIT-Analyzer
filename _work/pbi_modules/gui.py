@@ -36,8 +36,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .analyzer import analyze_pbit_file
+from .dispatcher import analyze_file
 from .excel_report import ExcelReportGenerator
+from .file_kind import PBIT, PBIX, FileFormatError, detect_file_kind
 from .help_dialog import HelpDialog
 from .lineage import build_lineage_directions
 
@@ -63,6 +64,31 @@ TAB_MAPPING = [
     ('stats', '📈 Статистика'),
 ]
 
+# PBIX не содержит слоя отчёта: визуальных вкладок нет, зато есть
+# метаданные модели (DAX, M, RLS/OLS, статистика хранения).
+TAB_MAPPING_PBIX = [
+    ('tables_ref', '📋 Справочник таблиц'),
+    ('columns', '📊 Столбцы'),
+    ('sources', '🔌 Источники'),
+    ('relationships', '🔗 Связи'),
+    ('measures', '📐 Меры'),
+    ('m_parameters', '🎛 Параметры M'),
+    ('rls', '🔐 Безопасность (RLS)'),
+    ('ols', '🔐 Безопасность (OLS)'),
+    ('perspectives', '👁 Перспективы'),
+    ('lineage', '🧬 Линейдж'),
+    ('lineage_upstream', '🧭 Lineage Upstream'),
+    ('lineage_downstream', '🧭 Lineage Downstream'),
+    ('statistics', '💾 Статистика хранения'),
+    ('stats', '📈 Статистика'),
+]
+
+
+
+def tab_mapping_for(file_kind: str):
+    """Набор вкладок с таблицами по типу файла."""
+    return TAB_MAPPING_PBIX if str(file_kind).lower() == PBIX else TAB_MAPPING
+
 LINEAGE_HEAVY_TABLE_ROWS_THRESHOLD = 1200
 
 
@@ -75,25 +101,25 @@ def open_path_in_os(path: str) -> None:
 
 
 class AnalysisWorker(QThread):
-    """Фоновый поток для анализа PBIT файла."""
+    """Фоновый поток для анализа PBIT/PBIX файла."""
     progress = pyqtSignal(int, str)
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
     log = pyqtSignal(str)
 
-    def __init__(self, pbit_path, output_dir, keep_temp=False, create_excel=False):
+    def __init__(self, file_path, output_dir, keep_temp=False, create_excel=False):
         super().__init__()
-        self.pbit_path = pbit_path
+        self.file_path = file_path
         self.output_dir = output_dir
         self.keep_temp = keep_temp
         self.create_excel = create_excel
 
     def run(self):
         try:
-            self.log.emit(f"Начало анализа: {self.pbit_path}")
-            dfs = analyze_pbit_file(
-                pbit_path=self.pbit_path,
-                output_dir=self.output_dir,
+            self.log.emit(f"Начало анализа: {self.file_path}")
+            dfs = analyze_file(
+                self.file_path,
+                self.output_dir,
                 keep_temp=self.keep_temp,
                 create_excel=self.create_excel,
                 progress_callback=lambda value, message: self.progress.emit(value, message),
@@ -202,6 +228,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
         self.lineage_focus_map = {}
         self.output_dir = ""
         self.pbit_path = ""
+        self.file_kind = PBIT
         self.worker = None
         self.init_ui()
 
@@ -242,21 +269,15 @@ class PBITAnalyzerMainWindow(QMainWindow):
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
-                if url.toLocalFile().lower().endswith(".pbit"):
+                if url.toLocalFile().lower().endswith((".pbit", ".pbix")):
                     event.acceptProposedAction()
                     return
 
     def dropEvent(self, event):
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
-            if file_path.lower().endswith(".pbit"):
-                self.pbit_path = file_path
-                self.pbit_path_edit.setText(file_path)
-                self.pbit_path_edit.setObjectName("pbitPathLabelActive")
-                self.pbit_path_edit.setStyleSheet("color: black; padding: 5px; font-weight: bold;")
-                if not self.output_dir:
-                    self.output_dir = os.path.dirname(file_path)
-                    self.output_dir_edit.setText(self.output_dir)
+            if file_path.lower().endswith((".pbit", ".pbix")):
+                self._set_selected_file(file_path)
                 self.log(f"Файл перетащен: {file_path}")
                 self.statusBar().showMessage(f"Файл загружен: {os.path.basename(file_path)}")
                 return
@@ -311,7 +332,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
             table.setRowHidden(row, False)
 
     def init_ui(self):
-        self.setWindowTitle("PBIT Analyzer — Анализатор Power BI Template файлов")
+        self.setWindowTitle("PBIT Analyzer — Анализатор Power BI Template (PBIT) и моделей (PBIX)")
         self.setGeometry(100, 100, 1400, 900)
 
         # Load QSS stylesheet
@@ -350,7 +371,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
         splitter.setSizes([700, 200])
         main_layout.addWidget(splitter, 1)
 
-        self.statusBar().showMessage("Готово к работе. Выберите PBIT файл.")
+        self.statusBar().showMessage("Готово к работе. Выберите файл PBIT или PBIX.")
         self.progress_bar = QProgressBar()
         self.progress_bar.setMaximumWidth(300)
         self.progress_bar.setVisible(False)
@@ -378,11 +399,11 @@ class PBITAnalyzerMainWindow(QMainWindow):
         layout = QGridLayout(panel)
         layout.setSpacing(5)
 
-        layout.addWidget(QLabel("PBIT файл:"), 0, 0)
+        layout.addWidget(QLabel("PBIT/PBIX файл:"), 0, 0)
         self.pbit_path_edit = QLabel("Файл не выбран")
         self.pbit_path_edit.setObjectName("pbitPathLabel")
         layout.addWidget(self.pbit_path_edit, 0, 1)
-        btn_select_file = QPushButton("Выбрать PBIT")
+        btn_select_file = QPushButton("Выбрать PBIT/PBIX")
         btn_select_file.setObjectName("btnSelectFile")
         btn_select_file.clicked.connect(self._select_pbit_file)
         layout.addWidget(btn_select_file, 0, 2)
@@ -412,7 +433,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
         self.lineage_focus_combo = QComboBox()
         self.lineage_focus_combo.setEditable(True)
         self.lineage_focus_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        self.lineage_focus_combo.setPlaceholderText("После анализа: S4 / A105 / M3 / VIS_ID :...")
+        self.lineage_focus_combo.setPlaceholderText("После анализа: S4 / A105 / M3 / VIS_ID :... (визуалы — только PBIT)")
         self.lineage_focus_combo.setToolTip("Выберите объект из списка или введите вручную")
         self.lineage_focus_combo.setEnabled(False)
         lineage_layout.addWidget(self.lineage_focus_combo, 1)
@@ -490,7 +511,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
 
         layout.addWidget(self.result_tabs, 1)
 
-        self.info_label = QLabel("Готово к работе. Выберите PBIT-файл и нажмите 'Начать анализ'.")
+        self.info_label = QLabel("Готово к работе. Выберите файл PBIT или PBIX и нажмите 'Начать анализ'.")
         self.info_label.setObjectName("infoLabel")
         self.info_label.setWordWrap(True)
         layout.addWidget(self.info_label)
@@ -508,20 +529,38 @@ class PBITAnalyzerMainWindow(QMainWindow):
         layout.addWidget(btn_clear_log)
         return panel
 
+    def _set_selected_file(self, file_path: str) -> None:
+        """Выбирает файл и определяет его формат по расширению и содержимому."""
+        try:
+            kind = detect_file_kind(file_path)
+        except FileFormatError as error:
+            QMessageBox.warning(self, "Неподдерживаемый файл", str(error))
+            self.log(f"Файл не принят: {error}")
+            return
+
+        self.pbit_path = file_path
+        self.file_kind = kind
+        self.pbit_path_edit.setText(file_path)
+        self.pbit_path_edit.setObjectName("pbitPathLabelActive")
+        self.pbit_path_edit.setStyleSheet("color: black; padding: 5px; font-weight: bold;")
+        if not self.output_dir:
+            self.output_dir = os.path.dirname(file_path)
+            self.output_dir_edit.setText(self.output_dir)
+        kind_label = "PBIX (модель)" if kind == PBIX else "PBIT (шаблон + отчёт)"
+        self.log(f"Выбран файл [{kind_label}]: {file_path}")
+        self.statusBar().showMessage(
+            f"Файл загружен: {os.path.basename(file_path)} ({kind.upper()})"
+        )
+
     def _select_pbit_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Выберите PBIT файл", "", "PBIT файлы (*.pbit);;Все файлы (*.*)"
+            self,
+            "Выберите файл PBIT или PBIX",
+            "",
+            "Power BI (*.pbit *.pbix);;PBIT (*.pbit);;PBIX (*.pbix);;Все файлы (*.*)",
         )
         if file_path:
-            self.pbit_path = file_path
-            self.pbit_path_edit.setText(file_path)
-            self.pbit_path_edit.setObjectName("pbitPathLabelActive")
-            self.pbit_path_edit.setStyleSheet("color: black; padding: 5px; font-weight: bold;")
-            if not self.output_dir:
-                self.output_dir = os.path.dirname(file_path)
-                self.output_dir_edit.setText(self.output_dir)
-            self.log(f"Выбран файл: {file_path}")
-            self.statusBar().showMessage(f"Файл загружен: {os.path.basename(file_path)}")
+            self._set_selected_file(file_path)
 
     def _select_output_dir(self):
         dir_path = QFileDialog.getExistingDirectory(
@@ -534,7 +573,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
 
     def _start_analysis(self):
         if not self.pbit_path:
-            QMessageBox.warning(self, "Ошибка", "Сначала выберите PBIT файл!")
+            QMessageBox.warning(self, "Ошибка", "Сначала выберите файл PBIT или PBIX!")
             return
 
         self._ensure_output_dir()
@@ -574,6 +613,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
         self.btn_open_excel.setEnabled(has_excel)
         self.btn_open_folder.setEnabled(True)
         self.btn_export_excel.setEnabled(True)
+        self.file_kind = str(dfs.get("file_kind", self.file_kind)).lower()
         self._populate_tables(dfs)
         self._update_text_report(dfs)
         self._update_stats_report(dfs)
@@ -587,7 +627,10 @@ class PBITAnalyzerMainWindow(QMainWindow):
             self.log("АНАЛИЗ ЗАВЕРШЕН! Excel не создавался (по настройке).")
             finish_text = "Анализ завершен успешно!\n\nExcel не создавался (галка 'Создать Excel' выключена)."
         self.statusBar().showMessage("Анализ завершен успешно!")
-        self.info_label.setText("Анализ завершен успешно. Просмотрите вкладки 'Результаты парсинга', 'Текстовый вывод' и 'Статистика'.")
+        self.info_label.setText(
+            f"Анализ завершен успешно ({self.file_kind.upper()}). "
+            "Просмотрите вкладки 'Результаты парсинга', 'Текстовый вывод' и 'Статистика'."
+        )
         QMessageBox.information(self, "Готово!", finish_text)
 
         if self.chk_open_folder.isChecked():
@@ -912,9 +955,13 @@ class PBITAnalyzerMainWindow(QMainWindow):
         while self.tab_widget.count() > 0:
             self.tab_widget.removeTab(0)
 
-        for df_key, tab_name in TAB_MAPPING:
+        file_kind = dfs.get("file_kind", self.file_kind)
+        for df_key, tab_name in tab_mapping_for(file_kind):
             df = dfs.get(df_key)
             if df is None or df.empty:
+                # В PBIX показываем все разделы: пустой — с пометкой, а не спрятанный.
+                if str(file_kind).lower() == PBIX:
+                    self.tab_widget.addTab(self._create_empty_tab(tab_name), tab_name)
                 continue
             table = self._create_table_from_df(df, df_key=df_key)
 
@@ -931,16 +978,28 @@ class PBITAnalyzerMainWindow(QMainWindow):
 
         self.log(f"Создано вкладок: {self.tab_widget.count()}")
 
+    @staticmethod
+    def _create_empty_tab(tab_name: str):
+        """Заглушка для раздела PBIX без данных."""
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        label = QLabel(f"Нет данных: {tab_name}")
+        label.setObjectName("emptyTabLabel")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(label)
+        return container
+
     def _update_text_report(self, dfs):
+        kind = str(dfs.get("file_kind", self.file_kind)).upper()
         lines = [
-            "=== РЕЗУЛЬТАТЫ АНАЛИЗА PBIT ===",
+            f"=== РЕЗУЛЬТАТЫ АНАЛИЗА {kind} ===",
             f"Файл: {self.pbit_path or '—'}",
             f"Папка вывода: {self.output_dir or '—'}",
             f"Дата анализа: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "",
             "=== ДОСТУПНЫЕ НАБОРЫ ДАННЫХ ===",
         ]
-        for df_key, tab_name in TAB_MAPPING:
+        for df_key, tab_name in tab_mapping_for(kind):
             df = dfs.get(df_key)
             if df is not None and not df.empty:
                 lines.append(f"- {tab_name}: {len(df)} строк")
@@ -949,12 +1008,13 @@ class PBITAnalyzerMainWindow(QMainWindow):
         self.text_output.setPlainText("\n".join(lines))
 
     def _update_stats_report(self, dfs):
+        mapping = tab_mapping_for(dfs.get("file_kind", self.file_kind))
         stats_lines = [
             "=== СТАТИСТИКА ===",
-            f"Всего вкладок с данными: {sum(1 for key, _ in TAB_MAPPING if dfs.get(key) is not None and not dfs.get(key).empty)}",
+            f"Всего вкладок с данными: {sum(1 for key, _ in mapping if dfs.get(key) is not None and not dfs.get(key).empty)}",
         ]
         total_rows = 0
-        for df_key, tab_name in TAB_MAPPING:
+        for df_key, tab_name in mapping:
             df = dfs.get(df_key)
             if df is None or df.empty:
                 continue
@@ -1070,7 +1130,10 @@ class PBITAnalyzerMainWindow(QMainWindow):
         
         try:
             self.log(f"Начало экспорта в Excel: {file_path}")
-            generator = ExcelReportGenerator(file_path, self.current_dfs, source_file=self.pbit_path or "")
+            sheets = ExcelReportGenerator.sheets_for(self.current_dfs.get("file_kind", self.file_kind))
+            generator = ExcelReportGenerator(
+                file_path, self.current_dfs, source_file=self.pbit_path or "", sheets=sheets
+            )
             generator.generate()
             self.log(f"Экспорт завершен: {file_path}")
             QMessageBox.information(self, "Успех", f"Файл успешно сохранен:\n{file_path}")

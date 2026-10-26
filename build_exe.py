@@ -89,7 +89,21 @@ COMMON_HIDDEN_IMPORTS = [
     "pbi_modules.formatters",
     "pbi_modules.lineage",
     "pbi_modules.logging_config",
+    "pbi_modules.file_kind",
+    "pbi_modules.dispatcher",
+    "pbi_modules.pbix_extractor",
+    "pbi_modules.pbix_analyzer",
+    # PBIX: pbixray + нативные декодеры VertiPaq и SQLite-движок для метаданных.
+    "pbixray",
+    "apsw",
+    "xpress8",
+    "xpress9",
+    "xmhuffman",
 ]
+
+# xpress8/xpress9/xmhuffman — одиночные .pyd-модули: им достаточно
+# --hidden-import, --collect-all для них не нужен.
+COLLECT_ALL_PACKAGES: list[str] = []
 
 GUI_HIDDEN_IMPORTS = COMMON_HIDDEN_IMPORTS + [
     "PyQt6",
@@ -110,8 +124,13 @@ CLI_EXCLUDES = [
     "tkinter",
 ]
 
+# В окружении разработчика могут стоять другие Qt-биндинги (например, PyQt5).
+# PyInstaller не собирает два биндинга сразу, поэтому лишние явно исключаем.
 GUI_EXCLUDES = [
     "tkinter",
+    "PyQt5",
+    "PySide2",
+    "PySide6",
 ]
 
 # Данные для копирования в EXE: (исходник, папка внутри бандла).
@@ -159,6 +178,7 @@ def ensure_runtime_packages(with_gui: bool) -> None:
     packages = {
         "pandas": "pandas",
         "openpyxl": "openpyxl",
+        "pbixray": "pbixray",
     }
     if with_gui:
         packages["PyQt6"] = "PyQt6"
@@ -259,6 +279,12 @@ def build(
 
     for module in excludes:
         cmd.extend(["--exclude-module", module])
+
+    for package in COLLECT_ALL_PACKAGES:
+        if importlib.util.find_spec(package) is not None:
+            cmd.extend(["--collect-all", package])
+        else:
+            print(f"  [пропущен --collect-all] {package} — не установлен")
 
     for src, dst in _existing_datas(datas):
         cmd.extend(["--add-data", f"{src}{os.pathsep}{dst}"])

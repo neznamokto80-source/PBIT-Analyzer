@@ -35,14 +35,40 @@ class ExcelReportGenerator:
         ("Статистика", "stats"),
     ]
 
-    def __init__(self, output_path: str, dfs: dict, source_file: str):
+    # PBIX не содержит слоя отчёта: визуальных листов нет, зато есть
+    # метаданные модели, которых нет в .pbit (DAX, M, RLS/OLS, статистика хранения).
+    SHEETS_ORDER_PBIX = [
+        ("Справочник таблиц", "tables_ref"),
+        ("Столбцы", "columns"),
+        ("Источники", "sources"),
+        ("Связи", "relationships"),
+        ("Меры", "measures"),
+        ("Power Query", "power_query"),
+        ("Параметры M", "m_parameters"),
+        ("Безопасность (RLS)", "rls"),
+        ("Безопасность (OLS)", "ols"),
+        ("Перспективы", "perspectives"),
+        ("Линейдж", "lineage"),
+        ("Lineage_Upstream", "lineage_upstream"),
+        ("Lineage_Downstream", "lineage_downstream"),
+        ("Статистика хранения", "statistics"),
+        ("Статистика", "stats"),
+    ]
+
+    def __init__(self, output_path: str, dfs: dict, source_file: str, sheets: list[tuple[str, str]] | None = None):
         self.output_path = output_path
         self.dfs = dfs
         self.source_file = source_file
+        self.sheets = sheets or self.SHEETS_ORDER
+
+    @classmethod
+    def sheets_for(cls, file_kind: str) -> list[tuple[str, str]]:
+        """Набор листов по типу файла: pbit — прежний, pbix — модельный."""
+        return cls.SHEETS_ORDER_PBIX if str(file_kind).lower() == "pbix" else cls.SHEETS_ORDER
 
     def generate(self):
         with pd.ExcelWriter(self.output_path, engine="openpyxl") as writer:
-            for sheet_name, df_key in self.SHEETS_ORDER:
+            for sheet_name, df_key in self.sheets:
                 df = self.dfs.get(df_key)
                 if df is not None and not df.empty:
                     df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -167,6 +193,13 @@ class ExcelReportGenerator:
                 "Контекст",
             ],
             "stats": ["Параметр", "Значение"],
+            "dax": ["Тип объекта", "№ таблицы", "Таблица", "Имя", "Выражение"],
+            "power_query": ["Таблица", "Запрос (M)"],
+            "m_parameters": ["Параметр", "Описание", "Выражение", "Изменён"],
+            "rls": ["Роль", "Таблица", "Фильтр", "Состояние", "Описание"],
+            "ols": ["Роль", "Таблица", "Столбец", "Область", "Права"],
+            "perspectives": ["Перспектива", "Тип объекта", "Таблица", "Объект", "Включить все"],
+            "statistics": ["Таблица", "Столбец", "Кардинальность", "Словарь", "HashIndex", "DataSize"],
         }
         return col_map.get(df_key, [])
 
@@ -199,7 +232,7 @@ class ExcelReportGenerator:
         ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
 
     @staticmethod
-    def build_stats(dfs: dict, source_file: str):
+    def build_stats(dfs: dict, source_file: str, extra: dict | None = None):
         stats = {
             "Всего таблиц": len(dfs.get("tables_ref", [])),
             "Всего столбцов": len(dfs.get("columns", [])),
@@ -215,6 +248,8 @@ class ExcelReportGenerator:
             "Файл источника": source_file,
             "Дата обработки": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
+        if extra:
+            stats.update(extra)
         return pd.DataFrame(list(stats.items()), columns=["Параметр", "Значение"])
 
 
