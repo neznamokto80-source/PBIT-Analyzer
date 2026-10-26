@@ -1,0 +1,53 @@
+name: Build EXE
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+    paths-ignore:
+      - "**.md"
+      - "screenshot/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [gui, cli]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Lint
+        run: python -m ruff check run_cli.py run_gui.py build_exe.py
+
+      - name: Tests
+        run: python -m pytest -q
+
+      - name: Build (${{ matrix.target }})
+        run: python build_exe.py --${{ matrix.target }} --no-copy
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PBIT_Analyzer_${{ matrix.target }}
+          path: dist/*.exe
+          if-no-files-found: error

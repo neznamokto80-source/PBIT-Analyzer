@@ -78,17 +78,53 @@ CHOICE=Enter option number [1-5]:
 ```
 
 
-Или напрямую:
+Или напрямую из корня проекта:
 
 ```bash
-python _work\last_work_gui_work.py
+python run_gui.py
 ```
+
+(старая точка входа `python _work\last_work_gui_work.py` тоже работает)
 
 Примечание: авто-установка недостающих библиотек
 
+## Запуск без GUI (headless)
+
+`run_cli.py` выполняет тот же анализ, но без PyQt6 — подходит для серверов и скриптов.
+
+```bash
+python run_cli.py report.pbit                    # Excel рядом с .pbit
+python run_cli.py report.pbit -o out             # папка для результата
+python run_cli.py report.pbit --no-excel         # только анализ
+python run_cli.py report.pbit --focus M22        # фокус lineage
+python run_cli.py report.pbit --keep-temp -q     # временные файлы, без логов
+```
+
+Коды возврата: `0` — успех, `1` — ошибка анализа, `2` — неверные аргументы или файл не найден.
+
+## Сборка EXE
+
+```bash
+python -m pip install -r requirements.txt pyinstaller
+
+python build_exe.py            # GUI + CLI
+python build_exe.py --gui      # только GUI
+python build_exe.py --cli      # только CLI (без Qt, заметно меньше)
+python build_exe.py --dir      # папка вместо одного файла (быстрее запуск)
+python build_exe.py --clean    # очистить build/ dist/ и .spec
+```
+
+Скрипт сам ставит недостающие зависимости, подставляет версию из `plan/CHANGELOG.md`
+и копирует готовые `PBIT_Analyzer_GUI_v*.exe` / `PBIT_Analyzer_CLI_v*.exe` в корень проекта.
+В GUI-сборку попадают `styles.qss`, `schema_documentation.md` и `plan/CHANGELOG.md`,
+поэтому справка и оформление работают и в EXE.
+
 ## Структура
 
-- `_work/last_work_gui_work.py` — точка входа GUI.
+- `run_gui.py` — точка входа GUI (корень проекта).
+- `run_cli.py` — точка входа без GUI (headless).
+- `build_exe.py` — сборка EXE через PyInstaller.
+- `_work/last_work_gui_work.py` — исходная точка входа GUI с авто-установкой пакетов.
 - `_work/pbi_modules/gui.py` — интерфейс и фоновый worker.
 - `_work/pbi_modules/analyzer.py` — сервис анализа `.pbit` (оркестрация).
 - `_work/pbi_modules/extractors.py` — извлечение из `DataModelSchema` и `Layout`.
