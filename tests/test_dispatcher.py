@@ -28,6 +28,15 @@ def test_detect_file_kind_by_content(tmp_path):
     assert detect_file_kind(str(_write_pbix(tmp_path / "a.pbix"))) == PBIX
 
 
+def test_detect_pbit_with_layout_in_report_folder(tmp_path):
+    path = tmp_path / "nested.pbit"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("DataModelSchema", b"{}")
+        archive.writestr("Report/Layout", b"{}")
+
+    assert detect_file_kind(str(path)) == PBIT
+
+
 def test_detect_rejects_mismatched_extension(tmp_path):
     pbit_named_pbix = _write_pbit(tmp_path / "wrong.pbix")
 

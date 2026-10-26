@@ -52,6 +52,7 @@ def test_analyze_real_pbix_builds_excel(tmp_path, sample_pbix):
     assert "Безопасность (RLS)" in workbook.sheetnames
     assert "Статистика хранения" in workbook.sheetnames
     assert "DAX" not in workbook.sheetnames
+    assert "Power Query" not in workbook.sheetnames
     assert "Визуальные элементы" not in workbook.sheetnames
     assert "Листы" not in workbook.sheetnames
 

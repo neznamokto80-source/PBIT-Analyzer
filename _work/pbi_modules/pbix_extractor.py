@@ -170,7 +170,14 @@ class PBIXModelExtractor:
             if name:
                 meta[name] = row.to_dict()
 
-        names = table_order or list(meta)
+        # Полный порядок таблиц модели: видимые нужны для «Справочника таблиц»,
+        # а скрытые — чтобы не потерять меры, закреплённые за скрытой таблицей.
+        names = list(table_order) or []
+        for name in meta:
+            if name not in names:
+                names.append(name)
+        self.all_table_names = names
+
         result: list[tuple[str, dict]] = []
         for name in names:
             info = meta.get(name, {})
@@ -214,12 +221,21 @@ class PBIXModelExtractor:
             "dax_measures",
             ["TableName", "Name", "Expression", "DisplayFolder", "Description", "FormatString"],
         )
+        # Меры собираются по всем таблицам модели, включая скрытые: мера — это
+        # объект модели, и её не должно скрывать только место хранения.
+        measure_tables: list[str] = list(self.all_table_names)
+        for _, row in measures_frame.iterrows():
+            table_name = _clean(row.get("TableName"))
+            if table_name and table_name not in measure_tables:
+                measure_tables.append(table_name)
+
         m_counter = 0
-        for table_name, _ in self.tables:
+        for table_name in measure_tables:
             rows = [
                 row for _, row in measures_frame.iterrows()
                 if _clean(row.get("TableName")) == table_name
             ]
+            t_num = self.table_number.get(table_name, "")
             for row in rows:
                 measure_name = _clean(row.get("Name"))
                 if not measure_name:
@@ -228,7 +244,7 @@ class PBIXModelExtractor:
                 m_num = f"M{m_counter}"
                 self.measure_to_number[measure_name] = m_num
                 self._measure_meta.append(
-                    (table_name, self.table_number[table_name], m_num, measure_name, row)
+                    (table_name, t_num, m_num, measure_name, row)
                 )
 
     def _build_rows(self) -> None:
@@ -292,7 +308,8 @@ class PBIXModelExtractor:
         deps = self.dep_analyzer.find_dependencies(expr, exclude_measure=m_name) if expr else "—"
         return {
             "№ меры": m_num,
-            "№ таблицы": t_num,
+            # У скрытой таблицы нет номера в «Справочнике таблиц» — будет прочерк.
+            "№ таблицы": t_num or "—",
             "Таблица": table_name,
             "Мера": m_name,
             "Описание": _clean(row.get("Description")) or "—",

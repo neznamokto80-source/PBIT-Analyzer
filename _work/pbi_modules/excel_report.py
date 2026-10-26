@@ -43,7 +43,6 @@ class ExcelReportGenerator:
         ("Источники", "sources"),
         ("Связи", "relationships"),
         ("Меры", "measures"),
-        ("Power Query", "power_query"),
         ("Параметры M", "m_parameters"),
         ("Безопасность (RLS)", "rls"),
         ("Безопасность (OLS)", "ols"),

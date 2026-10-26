@@ -38,6 +38,8 @@ class FakePBIXModel:
              "DisplayFolder": "Продажи", "Description": "Сумма"},
             {"TableName": "Products", "Name": "Total Cost",
              "Expression": "SUMX(Products, 1)", "DisplayFolder": None, "Description": None},
+            {"TableName": "HiddenTable", "Name": "Hidden Sales",
+             "Expression": "SUMX(Products, [Total Cost])", "DisplayFolder": None, "Description": None},
         ])
         self.dax_tables = pd.DataFrame([{"TableName": "Products", "Expression": "DISTINCT(Sales[Amount])"}])
         self.dax_columns = pd.DataFrame([
@@ -109,6 +111,25 @@ def test_measure_dependencies_use_ref_icons(dfs):
     assert "📊 S1" in deps
     assert "📋 A101" in deps
     assert "📐 M2" in deps
+
+
+def test_measures_of_hidden_tables_are_kept(dfs):
+    measures = dfs["measures"].set_index("Мера")
+
+    assert "Hidden Sales" in measures.index
+    assert measures.loc["Hidden Sales", "№ меры"] == "M3"
+    assert measures.loc["Hidden Sales", "Таблица"] == "HiddenTable"
+    # У скрытой таблицы нет номера в справочнике — прочерк, а не выдуманный ID.
+    assert measures.loc["Hidden Sales", "№ таблицы"] == "—"
+    assert "📐 M2" in measures.loc["Hidden Sales", "Зависимости"]
+
+
+def test_hidden_table_measure_has_no_fake_lineage_node(dfs):
+    edges = build_lineage_edges(dfs)
+
+    assert (edges["ID приемника"] == "M3").any()
+    assert not (edges["ID источника"] == "—").any()
+    assert not (edges["ID приемника"] == "—").any()
 
 
 def test_calculated_column_dependencies(dfs):

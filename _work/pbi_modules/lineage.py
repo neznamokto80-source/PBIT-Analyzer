@@ -43,6 +43,12 @@ def _node_type_by_ref(ref: str) -> str:
     return "Неизвестно"
 
 
+def _clean_node_id(value) -> str:
+    """ID узла: прочерк (мера на скрытой таблице без номера) — это не узел."""
+    node_id = str(value or "").strip()
+    return "" if node_id in {"—", "-"} else node_id
+
+
 def _empty_lineage_df() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
@@ -219,7 +225,7 @@ def build_lineage_edges(dfs: dict) -> pd.DataFrame:
     measures = dfs.get("measures")
     if measures is not None and not measures.empty:
         for _, row in measures.iterrows():
-            table_id = str(row.get("№ таблицы", "")).strip()
+            table_id = _clean_node_id(row.get("№ таблицы", ""))
             table_name = str(row.get("Таблица", "")).strip()
             measure_id = str(row.get("№ меры", "")).strip()
             measure_name = str(row.get("Мера", "")).strip()

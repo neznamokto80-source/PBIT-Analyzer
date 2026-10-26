@@ -40,6 +40,33 @@ def test_analyze_pbit_file_generates_excel(tmp_path):
     assert "ID фокуса" in result["lineage_downstream"].columns
 
 
+def test_analyze_pbit_file_finds_layout_in_report_folder(tmp_path):
+    model_payload = {
+        "model": {
+            "tables": [
+                {
+                    "name": "Sales",
+                    "columns": [{"name": "Amount", "dataType": "double"}],
+                    "measures": [{"name": "Total Sales", "expression": "SUM(Sales[Amount])"}],
+                    "partitions": [{"source": {"type": "m", "expression": "let x = 1 in x"}}],
+                }
+            ],
+            "relationships": [],
+        }
+    }
+    layout_payload = {"sections": [{"displayName": "Page 1", "visualContainers": []}]}
+
+    pbit_path = tmp_path / "nested.pbit"
+    with zipfile.ZipFile(pbit_path, "w") as archive:
+        archive.writestr("DataModelSchema", json.dumps(model_payload).encode("utf-16-le"))
+        archive.writestr("Report/Layout", json.dumps(layout_payload).encode("utf-16-le"))
+
+    result = analyze_pbit_file(str(pbit_path), str(tmp_path), keep_temp=False, create_excel=False)
+
+    assert result["tables_ref"].iloc[0]["Имя таблицы"] == "Sales"
+    assert result["sheets"].iloc[0]["Имя листа"] == "Page 1"
+
+
 def test_build_report_filename_includes_source_name():
     filename = build_report_filename(r"D:\reports\sales model.pbit", "20260416_101010")
 

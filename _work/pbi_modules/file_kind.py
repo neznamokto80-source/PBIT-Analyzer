@@ -4,6 +4,8 @@
 Расширение выбирает предполагаемый формат, содержимое zip его подтверждает:
     .pbit -> member DataModelSchema (+ Layout)
     .pbix -> member DataModel (сжатая модель VertiPaq)
+Layout в .pbit лежит либо в корне архива, либо в папке Report
+(Report/Layout в новых версиях Power BI Desktop) — поддержаны оба варианта.
 Несовпадение — понятная ошибка, а не падение внутри парсера.
 """
 from __future__ import annotations
@@ -31,6 +33,16 @@ def _zip_members(path: str) -> set[str]:
         ) from error
     except OSError as error:
         raise FileFormatError(f"Не удалось открыть файл: {error}") from error
+
+
+def _member_basename(member: str) -> str:
+    """Имя файла внутри архива без папок: 'Report/Layout' -> 'Layout'."""
+    return member.replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def has_archive_part(members: set[str], name: str) -> bool:
+    """Есть ли часть архива с таким именем в корне или во вложенной папке."""
+    return any(_member_basename(member) == name for member in members)
 
 
 def _detect_by_content(members: set[str]) -> str | None:
@@ -65,10 +77,20 @@ def detect_file_kind(path: str) -> str:
             f"Переименуйте файл в *{hint} и повторите."
         )
 
-    if actual == PBIT and "Layout" not in members:
-        raise FileFormatError("В PBIT-архиве нет Layout: файл неполный или повреждён.")
+    if actual == PBIT and not has_archive_part(members, "Layout"):
+        raise FileFormatError(
+            "В PBIT-архиве нет Layout (ни в корне, ни в папке Report): "
+            "файл неполный или повреждён."
+        )
 
     return actual
 
 
-__all__ = ["PBIT", "PBIX", "SUPPORTED_SUFFIXES", "FileFormatError", "detect_file_kind"]
+__all__ = [
+    "PBIT",
+    "PBIX",
+    "SUPPORTED_SUFFIXES",
+    "FileFormatError",
+    "detect_file_kind",
+    "has_archive_part",
+]

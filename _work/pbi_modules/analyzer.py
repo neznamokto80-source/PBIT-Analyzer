@@ -10,16 +10,36 @@ from .extractors import DataModelExtractor, LayoutExtractor, load_json_utf16
 from .lineage import build_lineage_directions, build_lineage_edges
 
 
+# Части архива PBIT, которые ищутся в распакованном виде.
+# Layout может лежать в корне или в папке Report (новые версии Power BI Desktop).
+_ARCHIVE_PARTS = {
+    "datamodelschema": "model",
+    "layout": "layout",
+}
+
+
 def find_model_and_layout_files(temp_dir: str) -> tuple[str | None, str | None]:
-    data_model_path = None
-    layout_path = None
+    """Ищет DataModelSchema и Layout в распакованном архиве.
+
+    Файлы могут лежать как в корне, так и во вложенной папке
+    (Report/Layout). Приоритет отдаётся файлу, ближайшему к корню.
+    """
+    found: dict[str, tuple[int, str]] = {}
     for root, _dirs, files in os.walk(temp_dir):
+        relative = os.path.relpath(root, temp_dir)
+        depth = 0 if relative == os.curdir else len(relative.split(os.sep))
         for filename in files:
-            if filename == "DataModelSchema":
-                data_model_path = os.path.join(root, filename)
-            elif filename == "Layout":
-                layout_path = os.path.join(root, filename)
-    return data_model_path, layout_path
+            part = _ARCHIVE_PARTS.get(filename.lower())
+            if not part:
+                continue
+            path = os.path.join(root, filename)
+            current = found.get(part)
+            if current is None or depth < current[0]:
+                found[part] = (depth, path)
+
+    model_path = found["model"][1] if "model" in found else None
+    layout_path = found["layout"][1] if "layout" in found else None
+    return model_path, layout_path
 
 
 def build_report_filename(pbit_path: str, timestamp: str) -> str:
@@ -62,7 +82,9 @@ def analyze_pbit_file(
         if not data_model_path:
             raise FileNotFoundError("Файл DataModelSchema не найден в архиве")
         if not layout_path:
-            raise FileNotFoundError("Файл Layout не найден в архиве")
+            raise FileNotFoundError(
+                "Файл Layout не найден в архиве (ни в корне, ни в папке Report)"
+            )
 
         _progress(30, "Загрузка DataModelSchema...")
         model_data = load_json_utf16(data_model_path)
