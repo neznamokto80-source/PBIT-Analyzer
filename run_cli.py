@@ -26,6 +26,21 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent
 WORK_DIR = PROJECT_ROOT / "_work"
 
+
+def use_utf8_output() -> None:
+    """Переводит stdout/stderr в UTF-8 (на Windows cp1252 кириллица падает)."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
+
+
+use_utf8_output()
+
 # pbi_modules находится в _work: добавляем путь до импорта пакета.
 if str(WORK_DIR) not in sys.path:
     sys.path.insert(0, str(WORK_DIR))

@@ -21,6 +21,25 @@ import shutil
 import subprocess
 import sys
 
+
+def use_utf8_output() -> None:
+    """Переводит stdout/stderr в UTF-8.
+
+    На Windows без UTF-8 режима кириллица в print() падает с
+    UnicodeEncodeError (например, на CI-раннерах с cp1252).
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
+
+
+use_utf8_output()
+
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 WORK_DIR = os.path.join(PROJECT_ROOT, "_work")
 DIST_DIR = os.path.join(PROJECT_ROOT, "dist")
