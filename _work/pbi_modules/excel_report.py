@@ -46,7 +46,6 @@ class ExcelReportGenerator:
         ("Параметры M", "m_parameters"),
         ("Безопасность (RLS)", "rls"),
         ("Безопасность (OLS)", "ols"),
-        ("Перспективы", "perspectives"),
         ("Линейдж", "lineage"),
         ("Lineage_Upstream", "lineage_upstream"),
         ("Lineage_Downstream", "lineage_downstream"),
@@ -197,7 +196,6 @@ class ExcelReportGenerator:
             "m_parameters": ["Параметр", "Описание", "Выражение", "Изменён"],
             "rls": ["Роль", "Таблица", "Фильтр", "Состояние", "Описание"],
             "ols": ["Роль", "Таблица", "Столбец", "Область", "Права"],
-            "perspectives": ["Перспектива", "Тип объекта", "Таблица", "Объект", "Включить все"],
             "statistics": ["Таблица", "Столбец", "Кардинальность", "Словарь", "HashIndex", "DataSize"],
         }
         return col_map.get(df_key, [])

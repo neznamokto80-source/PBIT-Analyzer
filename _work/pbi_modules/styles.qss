@@ -145,6 +145,25 @@ QGroupBox::title {
     padding: 0 5px;
 }
 
+/* --- Dialog buttons --- */
+/* Без этого правила кнопки QMessageBox/справки наследуют белый текст глобального
+   QPushButton без фона и становятся невидимыми на светлом фоне диалога. */
+QMessageBox QPushButton,
+QDialogButtonBox QPushButton,
+QDialog QPushButton {
+    background-color: #2196F3;
+    color: white;
+    font-size: 12px;
+    padding: 6px 18px;
+    min-width: 90px;
+    border-radius: 5px;
+}
+QMessageBox QPushButton:hover,
+QDialogButtonBox QPushButton:hover,
+QDialog QPushButton:hover {
+    background-color: #0b7dda;
+}
+
 /* --- Context menu --- */
 QMenu {
     background-color: white;

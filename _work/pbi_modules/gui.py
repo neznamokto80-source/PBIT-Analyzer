@@ -65,7 +65,7 @@ TAB_MAPPING = [
 ]
 
 # PBIX не содержит слоя отчёта: визуальных вкладок нет, зато есть
-# метаданные модели (DAX, M, RLS/OLS, статистика хранения).
+# метаданные модели (M, RLS/OLS, статистика хранения).
 TAB_MAPPING_PBIX = [
     ('tables_ref', '📋 Справочник таблиц'),
     ('columns', '📊 Столбцы'),
@@ -75,7 +75,6 @@ TAB_MAPPING_PBIX = [
     ('m_parameters', '🎛 Параметры M'),
     ('rls', '🔐 Безопасность (RLS)'),
     ('ols', '🔐 Безопасность (OLS)'),
-    ('perspectives', '👁 Перспективы'),
     ('lineage', '🧬 Линейдж'),
     ('lineage_upstream', '🧭 Lineage Upstream'),
     ('lineage_downstream', '🧭 Lineage Downstream'),
@@ -631,7 +630,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
             f"Анализ завершен успешно ({self.file_kind.upper()}). "
             "Просмотрите вкладки 'Результаты парсинга', 'Текстовый вывод' и 'Статистика'."
         )
-        QMessageBox.information(self, "Готово!", finish_text)
+        self._show_result_message("Готово!", finish_text, excel_path or "")
 
         if self.chk_open_folder.isChecked():
             self._open_output_folder()
@@ -1084,16 +1083,34 @@ class PBITAnalyzerMainWindow(QMainWindow):
             table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         return table
 
-    def _open_excel(self):
-        excel_path = self.current_dfs.get('excel_path')
-        if not excel_path or not os.path.exists(excel_path):
-            QMessageBox.warning(self, "Ошибка", "Excel файл не найден. Сначала выполните анализ.")
-            return
+    def _show_result_message(self, title: str, text: str, excel_path: str = "") -> None:
+        """Итоговое окно с кнопками «ОК» и «Открыть Excel» (если файл создан)."""
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle(title)
+        dialog.setIcon(QMessageBox.Icon.Information)
+        dialog.setText(text)
+        ok_button = dialog.addButton("ОК", QMessageBox.ButtonRole.AcceptRole)
+        dialog.setDefaultButton(ok_button)
+        open_button = None
+        if excel_path and os.path.exists(excel_path):
+            open_button = dialog.addButton("Открыть Excel", QMessageBox.ButtonRole.ActionRole)
+        dialog.exec()
+        if open_button is not None and dialog.clickedButton() is open_button:
+            self._open_excel_file(excel_path)
+
+    def _open_excel_file(self, excel_path: str) -> None:
         try:
             open_path_in_os(excel_path)
             self.log(f"Открыт Excel файл: {excel_path}")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Не удалось открыть файл:\n{e}")
+
+    def _open_excel(self):
+        excel_path = self.current_dfs.get('excel_path')
+        if not excel_path or not os.path.exists(excel_path):
+            QMessageBox.warning(self, "Ошибка", "Excel файл не найден. Сначала выполните анализ.")
+            return
+        self._open_excel_file(excel_path)
 
     def _open_output_folder(self):
         if not os.path.exists(self.output_dir):
@@ -1136,10 +1153,10 @@ class PBITAnalyzerMainWindow(QMainWindow):
             )
             generator.generate()
             self.log(f"Экспорт завершен: {file_path}")
-            QMessageBox.information(self, "Успех", f"Файл успешно сохранен:\n{file_path}")
             # Обновить excel_path в current_dfs, чтобы кнопка "Открыть Excel" работала
             self.current_dfs['excel_path'] = file_path
             self.btn_open_excel.setEnabled(True)
+            self._show_result_message("Успех", f"Файл успешно сохранен:\n{file_path}", file_path)
         except Exception as e:
             self.log(f"Ошибка экспорта: {traceback.format_exc()}")
             QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить файл:\n{e}")

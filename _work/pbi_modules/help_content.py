@@ -1,4 +1,5 @@
 import re
+import sys
 from pathlib import Path
 
 
@@ -103,13 +104,47 @@ def _inline(text: str) -> str:
     return text
 
 
+_PROJECT_MARKERS = (
+    ("schema_documentation.md",),
+    ("plan", "CHANGELOG.md"),
+    ("pyproject.toml",),
+)
+
+
+def _candidate_roots() -> list[Path]:
+    """Возможные корни проекта: папка пакета, бандл PyInstaller, выше по дереву."""
+    package_root = Path(__file__).resolve().parent.parent
+    candidates: list[Path] = [package_root]
+
+    meipass = getattr(sys, "_MEIPASS", "")
+    if meipass:
+        candidates.append(Path(meipass))
+    if getattr(sys, "frozen", False):
+        candidates.append(Path(sys.executable).resolve().parent)
+
+    candidates.extend(package_root.parents)
+
+    unique: list[Path] = []
+    for path in candidates:
+        if path not in unique:
+            unique.append(path)
+    return unique
+
+
 def _find_project_root() -> Path:
-    """Найти корень проекта (содержит pyproject.toml)."""
-    start = Path(__file__).resolve().parent.parent.parent
-    for candidate in [start, *start.parents]:
-        if (candidate / "pyproject.toml").exists():
-            return candidate
-    return start
+    """Найти папку с документацией справки.
+
+    В onefile-сборке PyInstaller файлы лежат в sys._MEIPASS, а `__file__`
+    модуля — в `_MEIPASS/pbi_modules/`, поэтому родитель папки пакета
+    проверяется первым: иначе справка не находит schema_documentation.md
+    и plan/CHANGELOG.md.
+    """
+    candidates = _candidate_roots()
+    for candidate in candidates:
+        for marker in _PROJECT_MARKERS:
+            if candidate.joinpath(*marker).exists():
+                return candidate
+    return candidates[0]
 
 
 def load_schema_doc_html() -> str:
@@ -148,6 +183,8 @@ HELP_TEXT = """
     </li>
     <li>Нажмите <b>"Начать анализ"</b></li>
     <li>Просмотрите результат во вкладках справа</li>
+    <li>В окне завершения нажмите <b>"Открыть Excel"</b> — отчёт откроется сразу,
+        либо <b>"ОК"</b>, чтобы вернуться к результатам</li>
 </ol>
 
 <h3>Вкладки с данными (детальное описание):</h3>
@@ -165,7 +202,6 @@ HELP_TEXT = """
     <li><b>Условное форматирование</b> — найденные правила форматирования визуалов (цветовые шкалы, гистограммы, значки) с условиями и приоритетами.</li>
     <li><b>Параметры M</b> (PBIX) — параметры Power Query с описанием и выражением.</li>
     <li><b>Безопасность (RLS/OLS)</b> (PBIX) — правила row-level и object-level security по ролям.</li>
-    <li><b>Перспективы</b> (PBIX) — объекты, включённые в перспективы модели.</li>
     <li><b>Статистика хранения</b> (PBIX) — кардинальность и размеры столбцов модели.</li>
     <li><b>Статистика</b> — агрегированные метрики анализа: количество таблиц, столбцов, мер, визуалов, листов, а также общий размер модели и время анализа.</li>
     <li><b>Схема PBIT</b> — справочная документация по структуре файлов PBIT (DataModelSchema, Layout).</li>
@@ -176,8 +212,8 @@ HELP_TEXT = """
     <li>PBIX читается библиотекой <b>pbixray</b> (read-only, без Power BI Desktop).</li>
     <li>В режиме PBIX скрыты вкладки отчёта — <b>Листы</b>, <b>Визуальные элементы</b>,
         <b>Условное форматирование</b>: у PBIX нет слоя отчёта.</li>
-    <li>Вместо них показаны <b>Параметры M</b>, <b>Безопасность (RLS/OLS)</b>,
-        <b>Перспективы</b> и <b>Статистика хранения</b>.</li>
+    <li>Вместо них показаны <b>Параметры M</b>, <b>Безопасность (RLS/OLS)</b>
+        и <b>Статистика хранения</b>.</li>
     <li>Отдельных вкладок DAX и Power Query нет: выражения мер и вычисляемых столбцов есть
         в <b>Мерах</b> и <b>Столбцах</b>, вычисляемые таблицы и M — в <b>Источниках</b>.</li>
     <li>Lineage строится по формулам DAX и связям; фокус — таблица (<b>S…</b>) или мера (<b>M…</b>).</li>

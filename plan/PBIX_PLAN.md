@@ -316,6 +316,10 @@ path
 7c. `.pbit` с `Layout` в папке `Report` (новые версии Power BI Desktop) поддерживается:
     `file_kind` проверяет часть архива по имени файла в любой папке, а `analyzer`
     ищет `DataModelSchema`/`Layout` по всему дереву и предпочитает ближайший к корню.
+7d. Убраны вкладка GUI «Перспективы» и лист Excel «Перспективы»: данные остаются
+    в `dfs["perspectives"]`, но в интерфейсе и отчёте не выводятся.
+7e. Справка собранного EXE ищет документацию в `sys._MEIPASS`, а не на уровень выше
+    (иначе `schema_documentation.md` и `plan/CHANGELOG.md` не находились).
 8. Добавлены `run_cli.py --self-test` и `run_gui.py --self-test` — без них smoke-проверка
    собранного EXE в CI невозможна (у windowed-сборки нет консоли).
 
