@@ -233,7 +233,7 @@ path
 - README: форматы, ограничения PBIX (нет визуалов, нет данных), установка, примеры CLI.
 - `plan/CHANGELOG.md`: `[2.2.0]` — единственный источник версии (`build_exe.detect_app_version`)
   → имена `PBIT_Analyzer_GUI_v2.2.0.exe`, `PBIT_Analyzer_CLI_v2.2.0.exe`.
-- `create_exe.bat` — без изменений.
+- `create_exe.bat` — тонкая обёртка над `build_exe.py` (те же флаги и очистка).
 
 Итого: ~5–6 рабочих дней, из них ~1 день на риски упаковки.
 

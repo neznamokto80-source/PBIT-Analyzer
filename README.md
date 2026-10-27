@@ -84,31 +84,7 @@ python -m pip install -r requirements.txt
 
 ## Запуск
 
-Через bat-файл:
-
-```bash
-tasks.bat
-```
-```
-откроется окно для выбора
-==========================================
-            PBIT Analyzer Tasks
-==========================================
-1. Run GUI application
-   Starts: python _work\last_work_gui_work.py
-2. Lint code
-   Runs:   python -m ruff check .
-3. Run tests
-   Runs:   python -m pytest
-4. Check all (lint + test)
-   Runs lint first, then tests
-5. Exit
-
-CHOICE=Enter option number [1-5]: 
-```
-
-
-Или напрямую из корня проекта:
+Из корня проекта:
 
 ```bash
 python run_gui.py
@@ -138,6 +114,8 @@ python run_cli.py --self-test                    # проверить завис
 
 ## Сборка EXE
 
+Вручную:
+
 ```bash
 python -m pip install -r requirements.txt pyinstaller
 
@@ -148,8 +126,14 @@ python build_exe.py --dir      # папка вместо одного файла
 python build_exe.py --clean    # очистить build/ dist/ и .spec
 ```
 
+То же самое через `create_exe.bat` — это тонкая обёртка над `build_exe.py`,
+принимает те же флаги (`create_exe.bat --gui`, `create_exe.bat --cli`, ...).
+
 Скрипт сам ставит недостающие зависимости, подставляет версию из `plan/CHANGELOG.md`
 и копирует готовые `PBIT_Analyzer_GUI_v*.exe` / `PBIT_Analyzer_CLI_v*.exe` в корень проекта.
+После сборки промежуточные `build/`, `dist/` и `*.spec` удаляются автоматически:
+остаётся только готовый EXE в корне проекта. С `--no-copy` и `--dir` папка `dist/`
+сохраняется — именно оттуда EXE забирает CI.
 В GUI-сборку попадают `styles.qss`, `schema_documentation.md` и `plan/CHANGELOG.md`,
 поэтому справка и оформление работают и в EXE. В оба EXE включается `pbixray`
 с бинарными декодерами — после сборки проверьте её командой
@@ -159,7 +143,8 @@ python build_exe.py --clean    # очистить build/ dist/ и .spec
 
 - `run_gui.py` — точка входа GUI (корень проекта).
 - `run_cli.py` — точка входа без GUI (headless).
-- `build_exe.py` — сборка EXE через PyInstaller.
+- `build_exe.py` — сборка EXE через PyInstaller (после сборки чистит `build/`, `dist/` и `*.spec`).
+- `create_exe.bat` — обёртка для `build_exe.py` с теми же флагами.
 - `_work/last_work_gui_work.py` — исходная точка входа GUI с авто-установкой пакетов.
 - `_work/pbi_modules/gui.py` — интерфейс и фоновый worker.
 - `_work/pbi_modules/dispatcher.py` — фасад: выбор анализатора по формату файла.

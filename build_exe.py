@@ -10,10 +10,15 @@
     python build_exe.py --clean      # Только очистка build/ dist/ и .spec
     python build_exe.py --no-copy    # Не копировать EXE в корень проекта
 
+После сборки промежуточные файлы (build/, dist/ и *.spec) удаляются автоматически:
+остаётся только готовый EXE в корне проекта. С `--no-copy` и `--dir` папка dist/
+сохраняется — именно оттуда EXE забирает CI.
+
 Требования:
     pip install pyinstaller
 """
 import argparse
+import glob
 import importlib
 import os
 import re
@@ -224,6 +229,32 @@ def _existing_datas(datas: list[tuple[str, str]]) -> list[tuple[str, str]]:
     return result
 
 
+def cleanup_build_artifacts(keep_dist: bool = False) -> list[str]:
+    """Удаляет промежуточные файлы PyInstaller после сборки.
+
+    keep_dist=True оставляет dist/ (режимы `--no-copy` и `--dir`, а также CI);
+    иначе удаляется и dist/ — готовый EXE уже лежит в корне проекта.
+    Возвращает имена удалённых файлов и папок для отчёта в консоли.
+    """
+    removed: list[str] = []
+    for directory in (BUILD_DIR, None if keep_dist else DIST_DIR):
+        if not directory or not os.path.exists(directory):
+            continue
+        shutil.rmtree(directory, ignore_errors=True)
+        if not os.path.exists(directory):
+            removed.append(os.path.basename(directory))
+
+    for spec_path in sorted(glob.glob(os.path.join(PROJECT_ROOT, "*.spec"))):
+        try:
+            os.remove(spec_path)
+        except OSError as error:
+            print(f"  [не удалось удалить] {spec_path}: {error}")
+            continue
+        removed.append(os.path.basename(spec_path))
+
+    return removed
+
+
 def _copy_exe(name: str, onefile: bool) -> None:
     """Копирует готовый EXE в корень проекта (как create_exe.bat)."""
     if not onefile:
@@ -370,10 +401,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.no_copy:
         print("  (копирование в корень отключено: --no-copy)")
 
-    if os.path.exists(DIST_DIR):
+    copied_exes = glob.glob(os.path.join(PROJECT_ROOT, f"PBIT_Analyzer_*{VERSION_SUFFIX}.exe"))
+    keep_dist = args.no_copy or not onefile or not success or len(copied_exes) < len(results)
+
+    if keep_dist and os.path.exists(DIST_DIR):
         print(f"\nРезультаты в: {DIST_DIR}")
         for item in sorted(os.listdir(DIST_DIR)):
             print(f"  {item}")
+
+    removed = cleanup_build_artifacts(keep_dist=keep_dist)
+    if keep_dist and os.path.exists(DIST_DIR):
+        print("\nПапка dist/ сохранена (--no-copy, --dir или сборка без копирования EXE)")
+    if removed:
+        print(f"\nУдалены временные файлы сборки: {', '.join(removed)}")
+    else:
+        print("\nВременных файлов сборки не осталось")
 
     return 0 if success else 1
 
