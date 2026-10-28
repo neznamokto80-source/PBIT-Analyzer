@@ -1,6 +1,5 @@
 import pandas as pd
 import pytest
-
 from pbi_modules.lineage import build_lineage_edges
 from pbi_modules.pbix_extractor import PBIXModelExtractor
 

@@ -21,7 +21,6 @@ import argparse
 import glob
 import importlib
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -62,17 +61,20 @@ APP_VERSION = "0"
 
 
 def detect_app_version() -> str:
-    """Версия приложения из plan/CHANGELOG.md (первый заголовок вида ## [2.1.0])."""
-    changelog = os.path.join(PROJECT_ROOT, "plan", "CHANGELOG.md")
-    try:
-        with open(changelog, "r", encoding="utf-8") as file:
-            match = re.search(r"^##\s*\[(\d+(?:\.\d+)*)\]", file.read(), re.MULTILINE)
-        if match:
-            return match.group(1)
-    except OSError:
-        pass
-    print("  [версия не найдена] plan/CHANGELOG.md — использую 0")
-    return "0"
+    """Версия из pbi_modules/version.py, сверенная с docs/CHANGELOG.md."""
+    from pbi_modules.version import __version__, changelog_version
+
+    changelog = os.path.join(PROJECT_ROOT, "docs", "CHANGELOG.md")
+    changelog_value = changelog_version(changelog)
+    if not changelog_value:
+        print("  [версия не найдена] docs/CHANGELOG.md — использую", __version__)
+        return __version__
+    if changelog_value != __version__:
+        raise SystemExit(
+            f"Версия в pbi_modules/version.py ({__version__}) не совпадает "
+            f"с первым заголовком docs/CHANGELOG.md ({changelog_value})."
+        )
+    return __version__
 
 
 APP_VERSION = detect_app_version()
@@ -89,7 +91,23 @@ COMMON_HIDDEN_IMPORTS = [
     "openpyxl.workbook",
     "pbi_modules",
     "pbi_modules.analyzer",
+    "pbi_modules.constants",
+    "pbi_modules.schemas",
+    "pbi_modules.focus",
+    "pbi_modules.ids",
     "pbi_modules.extractors",
+    "pbi_modules.extract",
+    "pbi_modules.extract.dependencies",
+    "pbi_modules.extract.model",
+    "pbi_modules.extract.json_io",
+    "pbi_modules.extract.icons",
+    "pbi_modules.extract.layout",
+    "pbi_modules.extract.layout.page",
+    "pbi_modules.extract.layout.fields",
+    "pbi_modules.extract.layout.filters",
+    "pbi_modules.extract.layout.formatting",
+    "pbi_modules.extract.layout.conditional",
+    "pbi_modules.extract.layout.visuals",
     "pbi_modules.excel_report",
     "pbi_modules.formatters",
     "pbi_modules.lineage",
@@ -117,6 +135,11 @@ GUI_HIDDEN_IMPORTS = COMMON_HIDDEN_IMPORTS + [
     "PyQt6.QtGui",
     "PyQt6.QtWidgets",
     "pbi_modules.gui",
+    "pbi_modules.ui",
+    "pbi_modules.ui.lineage_panel",
+    "pbi_modules.ui.search",
+    "pbi_modules.ui.tables",
+    "pbi_modules.ui.worker",
     "pbi_modules.help_content",
     "pbi_modules.help_dialog",
 ]
@@ -140,13 +163,13 @@ GUI_EXCLUDES = [
 
 # Данные для копирования в EXE: (исходник, папка внутри бандла).
 # styles.qss читается из pbi_modules/gui.py, help_content.py ищет корень проекта
-# по pyproject.toml и берёт оттуда schema_documentation.md и plan/CHANGELOG.md.
+# по pyproject.toml и берёт оттуда docs/schema_documentation.md и docs/CHANGELOG.md.
 GUI_DATAS = [
     (os.path.join(WORK_DIR, "pbi_modules", "styles.qss"), "pbi_modules"),
     (os.path.join(PROJECT_ROOT, "pyproject.toml"), "."),
     (os.path.join(PROJECT_ROOT, "README.md"), "."),
-    (os.path.join(PROJECT_ROOT, "schema_documentation.md"), "."),
-    (os.path.join(PROJECT_ROOT, "plan", "CHANGELOG.md"), os.path.join("plan")),
+    (os.path.join(PROJECT_ROOT, "docs", "schema_documentation.md"), "docs"),
+    (os.path.join(PROJECT_ROOT, "docs", "CHANGELOG.md"), "docs"),
 ]
 
 CLI_DATAS = [

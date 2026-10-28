@@ -8,7 +8,6 @@ from pathlib import Path
 
 import openpyxl
 import pytest
-
 from pbi_modules.pbix_analyzer import PBIXAnalysisError, analyze_pbix_file
 
 PBIX_DIR = Path(os.environ.get("PBIT_TEST_PBIX_DIR", r"D:\pbix"))

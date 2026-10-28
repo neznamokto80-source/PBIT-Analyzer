@@ -129,12 +129,12 @@ python build_exe.py --clean    # очистить build/ dist/ и .spec
 То же самое через `create_exe.bat` — это тонкая обёртка над `build_exe.py`,
 принимает те же флаги (`create_exe.bat --gui`, `create_exe.bat --cli`, ...).
 
-Скрипт сам ставит недостающие зависимости, подставляет версию из `plan/CHANGELOG.md`
+Скрипт сам ставит недостающие зависимости, подставляет версию из `docs/CHANGELOG.md`
 и копирует готовые `PBIT_Analyzer_GUI_v*.exe` / `PBIT_Analyzer_CLI_v*.exe` в корень проекта.
 После сборки промежуточные `build/`, `dist/` и `*.spec` удаляются автоматически:
 остаётся только готовый EXE в корне проекта. С `--no-copy` и `--dir` папка `dist/`
 сохраняется — именно оттуда EXE забирает CI.
-В GUI-сборку попадают `styles.qss`, `schema_documentation.md` и `plan/CHANGELOG.md`,
+В GUI-сборку попадают `styles.qss`, `docs/schema_documentation.md` и `docs/CHANGELOG.md`,
 поэтому справка и оформление работают и в EXE. В оба EXE включается `pbixray`
 с бинарными декодерами — после сборки проверьте её командой
 `PBIT_Analyzer_GUI_v*.exe --self-test` (или `PBIT_Analyzer_CLI_v*.exe --self-test`).
@@ -159,3 +159,4 @@ python build_exe.py --clean    # очистить build/ dist/ и .spec
 - `_work/pbi_modules/formatters.py` — форматирование данных для отображения.
 - `_work/pbi_modules/lineage.py` — построение графа зависимостей.
 - `_work/pbi_modules/logging_config.py` — конфигурация логирования.
+- `docs/` — документация: `schema_documentation.md`, `CHANGELOG.md`, `improvements.md` и планы работ.

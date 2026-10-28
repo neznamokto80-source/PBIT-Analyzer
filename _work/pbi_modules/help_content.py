@@ -105,8 +105,8 @@ def _inline(text: str) -> str:
 
 
 _PROJECT_MARKERS = (
-    ("schema_documentation.md",),
-    ("plan", "CHANGELOG.md"),
+    ("docs", "schema_documentation.md"),
+    ("docs", "CHANGELOG.md"),
     ("pyproject.toml",),
 )
 
@@ -136,8 +136,8 @@ def _find_project_root() -> Path:
 
     В onefile-сборке PyInstaller файлы лежат в sys._MEIPASS, а `__file__`
     модуля — в `_MEIPASS/pbi_modules/`, поэтому родитель папки пакета
-    проверяется первым: иначе справка не находит schema_documentation.md
-    и plan/CHANGELOG.md.
+    проверяется первым: иначе справка не находит docs/schema_documentation.md
+    и docs/CHANGELOG.md.
     """
     candidates = _candidate_roots()
     for candidate in candidates:
@@ -148,21 +148,21 @@ def _find_project_root() -> Path:
 
 
 def load_schema_doc_html() -> str:
-    """Загрузить schema_documentation.md и конвертировать в HTML."""
+    """Загрузить docs/schema_documentation.md и конвертировать в HTML."""
     root = _find_project_root()
-    md_path = root / "schema_documentation.md"
+    md_path = root / "docs" / "schema_documentation.md"
     if md_path.exists():
         return _md_to_html(md_path.read_text(encoding="utf-8"))
-    return "<p><i>Файл schema_documentation.md не найден.</i></p>"
+    return "<p><i>Файл docs/schema_documentation.md не найден.</i></p>"
 
 
 def load_changelog_html() -> str:
-    """Загрузить plan/CHANGELOG.md и конвертировать в HTML."""
+    """Загрузить docs/CHANGELOG.md и конвертировать в HTML."""
     root = _find_project_root()
-    md_path = root / "plan" / "CHANGELOG.md"
+    md_path = root / "docs" / "CHANGELOG.md"
     if md_path.exists():
         return _md_to_html(md_path.read_text(encoding="utf-8"))
-    return "<p><i>Файл plan/CHANGELOG.md не найден.</i></p>"
+    return "<p><i>Файл docs/CHANGELOG.md не найден.</i></p>"
 
 
 HELP_TEXT = """

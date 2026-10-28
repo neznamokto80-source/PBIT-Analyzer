@@ -9,7 +9,6 @@ from .excel_report import ExcelReportGenerator
 from .extractors import DataModelExtractor, LayoutExtractor, load_json_utf16
 from .lineage import build_lineage_directions, build_lineage_edges
 
-
 # Части архива PBIT, которые ищутся в распакованном виде.
 # Layout может лежать в корне или в папке Report (новые версии Power BI Desktop).
 _ARCHIVE_PARTS = {

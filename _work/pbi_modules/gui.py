@@ -6,12 +6,9 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
-from PyQt6.QtCore import QThread, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QFont, QKeySequence, QShortcut
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
-    QApplication,
-    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QCompleter,
@@ -19,28 +16,27 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
-    QLineEdit,
     QMainWindow,
-    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
     QSplitter,
-    QTableWidget,
-    QTableWidgetItem,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from .dispatcher import analyze_file
 from .excel_report import ExcelReportGenerator
 from .file_kind import PBIT, PBIX, FileFormatError, detect_file_kind
+from .focus import display_focus_id, normalize_focus_id, parse_focus_label
 from .help_dialog import HelpDialog
-from .lineage import build_lineage_directions
+from .schemas import TABS_BY_KIND, tabs_for
+from .ui.lineage_panel import filter_dfs
+from .ui.search import SearchBar
+from .ui.tables import create_table_from_df, format_cell  # noqa: F401 — реэкспорт
+from .ui.worker import AnalysisWorker
 
 
 def _load_stylesheet() -> str:
@@ -49,46 +45,14 @@ def _load_stylesheet() -> str:
         return qss_path.read_text(encoding="utf-8")
     return ""
 
-TAB_MAPPING = [
-    ('tables_ref', '📋 Справочник таблиц'),
-    ('columns', '📊 Столбцы'),
-    ('sources', '🔌 Источники'),
-    ('relationships', '🔗 Связи'),
-    ('measures', '📐 Меры'),
-    ('sheets', '📑 Листы'),
-    ('visuals', '🎨 Визуальные элементы'),
-    ('lineage', '🧬 Линейдж'),
-    ('lineage_upstream', '🧭 Lineage Upstream'),
-    ('lineage_downstream', '🧭 Lineage Downstream'),
-    ('conditional', '🎨 Условное форматирование'),
-    ('stats', '📈 Статистика'),
-]
-
-# PBIX не содержит слоя отчёта: визуальных вкладок нет, зато есть
-# метаданные модели (M, RLS/OLS, статистика хранения).
-TAB_MAPPING_PBIX = [
-    ('tables_ref', '📋 Справочник таблиц'),
-    ('columns', '📊 Столбцы'),
-    ('sources', '🔌 Источники'),
-    ('relationships', '🔗 Связи'),
-    ('measures', '📐 Меры'),
-    ('m_parameters', '🎛 Параметры M'),
-    ('rls', '🔐 Безопасность (RLS)'),
-    ('ols', '🔐 Безопасность (OLS)'),
-    ('lineage', '🧬 Линейдж'),
-    ('lineage_upstream', '🧭 Lineage Upstream'),
-    ('lineage_downstream', '🧭 Lineage Downstream'),
-    ('statistics', '💾 Статистика хранения'),
-    ('stats', '📈 Статистика'),
-]
-
+# Совместимость: наборы вкладок берутся из единого реестра schemas.py.
+TAB_MAPPING = list(TABS_BY_KIND[PBIT])
+TAB_MAPPING_PBIX = list(TABS_BY_KIND[PBIX])
 
 
 def tab_mapping_for(file_kind: str):
     """Набор вкладок с таблицами по типу файла."""
-    return TAB_MAPPING_PBIX if str(file_kind).lower() == PBIX else TAB_MAPPING
-
-LINEAGE_HEAVY_TABLE_ROWS_THRESHOLD = 1200
+    return list(tabs_for(file_kind))
 
 
 def open_path_in_os(path: str) -> None:
@@ -99,119 +63,9 @@ def open_path_in_os(path: str) -> None:
     subprocess.run([opener, path], check=False)
 
 
-class AnalysisWorker(QThread):
-    """Фоновый поток для анализа PBIT/PBIX файла."""
-    progress = pyqtSignal(int, str)
-    finished = pyqtSignal(dict)
-    error = pyqtSignal(str)
-    log = pyqtSignal(str)
-
-    def __init__(self, file_path, output_dir, keep_temp=False, create_excel=False):
-        super().__init__()
-        self.file_path = file_path
-        self.output_dir = output_dir
-        self.keep_temp = keep_temp
-        self.create_excel = create_excel
-
-    def run(self):
-        try:
-            self.log.emit(f"Начало анализа: {self.file_path}")
-            dfs = analyze_file(
-                self.file_path,
-                self.output_dir,
-                keep_temp=self.keep_temp,
-                create_excel=self.create_excel,
-                progress_callback=lambda value, message: self.progress.emit(value, message),
-                log_callback=lambda message: self.log.emit(message),
-            )
-            self.finished.emit(dfs)
-
-        except Exception as e:
-            self.error.emit(str(e))
-            self.log.emit(f"ОШИБКА: {traceback.format_exc()}")
-
-
 # ============================================================
 # Custom Table Widget с контекстным меню
 # ============================================================
-
-class CustomTableWidget(QTableWidget):
-    """Таблица с возможностью копирования и контекстным меню."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(self._show_context_menu)
-        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
-
-    def _show_context_menu(self, position):
-        menu = QMenu(self)
-        copy_cell = QAction("Копировать ячейку", self)
-        copy_cell.triggered.connect(self._copy_cell)
-        menu.addAction(copy_cell)
-        copy_row = QAction("Копировать строку", self)
-        copy_row.triggered.connect(self._copy_row)
-        menu.addAction(copy_row)
-        copy_selection = QAction("Копировать выделенное", self)
-        copy_selection.triggered.connect(self._copy_selection)
-        menu.addAction(copy_selection)
-        menu.addSeparator()
-        copy_all = QAction("Копировать всю таблицу", self)
-        copy_all.triggered.connect(self._copy_all)
-        menu.addAction(copy_all)
-        menu.exec(self.mapToGlobal(position))
-
-    def _copy_cell(self):
-        indexes = self.selectedIndexes()
-        if indexes:
-            item = indexes[0]
-            QApplication.clipboard().setText(str(item.data(Qt.ItemDataRole.DisplayRole) or ""))
-
-    def _copy_row(self):
-        indexes = self.selectedIndexes()
-        if not indexes:
-            return
-        row = indexes[0].row()
-        row_data = []
-        for col in range(self.columnCount()):
-            item = self.item(row, col)
-            row_data.append(str(item.text()) if item else "")
-        QApplication.clipboard().setText("\t".join(row_data))
-
-    def _copy_selection(self):
-        indexes = self.selectedIndexes()
-        if not indexes:
-            return
-        data_dict = {}
-        for idx in indexes:
-            row = idx.row()
-            col = idx.column()
-            if row not in data_dict:
-                data_dict[row] = {}
-            data_dict[row][col] = str(idx.data(Qt.ItemDataRole.DisplayRole) or "")
-        rows_text = []
-        for row in sorted(data_dict.keys()):
-            cols = data_dict[row]
-            row_values = []
-            for col in range(self.columnCount()):
-                row_values.append(cols.get(col, ""))
-            rows_text.append("\t".join(row_values))
-        QApplication.clipboard().setText("\n".join(rows_text))
-
-    def _copy_all(self):
-        all_data = []
-        headers = []
-        for col in range(self.columnCount()):
-            headers.append(self.horizontalHeaderItem(col).text() if self.horizontalHeaderItem(col) else "")
-        all_data.append("\t".join(headers))
-        for row in range(self.rowCount()):
-            row_data = []
-            for col in range(self.columnCount()):
-                item = self.item(row, col)
-                row_data.append(str(item.text()) if item else "")
-            all_data.append("\t".join(row_data))
-        QApplication.clipboard().setText("\n".join(all_data))
-
 
 # ============================================================
 # Главное окно приложения
@@ -284,51 +138,6 @@ class PBITAnalyzerMainWindow(QMainWindow):
     # ============================================================
     # Search / filter in tabs (Task 2.3)
     # ============================================================
-
-    def _create_search_bar(self, table: QTableWidget) -> QWidget:
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-
-        search_input = QLineEdit()
-        search_input.setObjectName("searchInput")
-        search_input.setPlaceholderText("Поиск по таблице...")
-        search_input.setClearButtonEnabled(True)
-        layout.addWidget(search_input, 1)
-
-        btn_search = QPushButton("Найти")
-        btn_search.setObjectName("btnSearch")
-        btn_search.clicked.connect(lambda: self._filter_table(table, search_input.text()))
-        layout.addWidget(btn_search)
-
-        btn_clear = QPushButton("Сброс")
-        btn_clear.setObjectName("btnClearSearch")
-        btn_clear.clicked.connect(lambda: self._clear_table_filter(table, search_input))
-        layout.addWidget(btn_clear)
-
-        search_input.returnPressed.connect(lambda: self._filter_table(table, search_input.text()))
-
-        return widget
-
-    def _filter_table(self, table: QTableWidget, query: str):
-        query = query.strip().lower()
-        for row in range(table.rowCount()):
-            match = False
-            if not query:
-                match = True
-            else:
-                for col in range(table.columnCount()):
-                    item = table.item(row, col)
-                    if item and query in item.text().lower():
-                        match = True
-                        break
-            table.setRowHidden(row, not match)
-
-    def _clear_table_filter(self, table: QTableWidget, search_input: QLineEdit):
-        search_input.clear()
-        for row in range(table.rowCount()):
-            table.setRowHidden(row, False)
 
     def init_ui(self):
         self.setWindowTitle("PBIT Analyzer — Анализатор Power BI Template (PBIT) и моделей (PBIX)")
@@ -639,63 +448,18 @@ class PBITAnalyzerMainWindow(QMainWindow):
 
     @staticmethod
     def _display_focus_id(node_type: str, node_id: str) -> str:
-        if node_type == "Визуал":
-            visual_id = node_id[4:] if node_id.startswith("VIS:") else node_id
-            return f"VIS_ID :{visual_id}"
-        return str(node_id).upper()
+        """Совместимость: логика в focus.display_focus_id."""
+        return display_focus_id(node_type, node_id)
 
     @staticmethod
     def _normalize_focus_input(value: str) -> str:
-        raw = str(value or "").strip()
-        if not raw:
-            return ""
-
-        upper_raw = raw.upper()
-        if upper_raw.startswith("VIS_ID"):
-            match = re.match(r"VIS_ID\s*:\s*(.+)$", raw, re.IGNORECASE)
-            return f"VIS:{match.group(1).strip()}" if match else ""
-        if upper_raw.startswith("VIS:"):
-            return f"VIS:{raw[4:].strip()}"
-        if "|" in raw:
-            parts = [part.strip() for part in raw.split("|")]
-            for part in parts:
-                normalized_part = PBITAnalyzerMainWindow._normalize_focus_input(part)
-                if normalized_part:
-                    return normalized_part
-            return ""
-        if upper_raw.startswith("S"):
-            return f"s{raw[1:]}"
-        if upper_raw.startswith("A"):
-            return f"A{raw[1:]}"
-        if upper_raw.startswith("M"):
-            return f"M{raw[1:]}"
-        return raw
+        """Совместимость: логика в focus.normalize_focus_id."""
+        return normalize_focus_id(value)
 
     @staticmethod
     def _parse_focus_label(label: str) -> tuple[str, str, str]:
-        """
-        Парсит label формата "Тип | ID | Имя".
-        Возвращает (node_type, node_id, display_name).
-        Если формат не соответствует, пытается определить тип по ID.
-        """
-        label = label.strip()
-        if " | " in label:
-            parts = [p.strip() for p in label.split(" | ", 2)]
-            if len(parts) == 3:
-                node_type, node_id, display_name = parts
-                return node_type, node_id, display_name
-        # Попробуем определить тип по ID
-        normalized = PBITAnalyzerMainWindow._normalize_focus_input(label)
-        if normalized.startswith("VIS:"):
-            return "Визуал", normalized, ""
-        if normalized.startswith("s"):
-            return "Таблица", normalized, ""
-        if normalized.startswith("A"):
-            return "Столбец", normalized, ""
-        if normalized.startswith("M"):
-            return "Мера", normalized, ""
-        # По умолчанию считаем, что это ID без типа
-        return "", normalized, ""
+        """Совместимость: логика в focus.parse_focus_label."""
+        return parse_focus_label(label)
 
     def _populate_lineage_focus_options(self):
         self.lineage_focus_map = {}
@@ -794,6 +558,7 @@ class PBITAnalyzerMainWindow(QMainWindow):
         self.btn_find_lineage.setEnabled(has_options)
 
     def _apply_lineage_focus(self):
+        """Фильтрует результаты по выбранному объекту через чистую filter_dfs."""
         if not self.current_dfs:
             QMessageBox.warning(self, "Ошибка", "Сначала выполните анализ.")
             return
@@ -803,122 +568,27 @@ class PBITAnalyzerMainWindow(QMainWindow):
             QMessageBox.warning(self, "Ошибка", "Выберите или введите фокус для lineage.")
             return
 
-        focus_id = self.lineage_focus_combo.currentData()
+        focus_id = (
+            self.lineage_focus_combo.currentData()
+            or self.lineage_focus_map.get(raw_value)
+            or self._normalize_focus_input(raw_value)
+        )
+        node_type, _, _ = self._parse_focus_label(raw_value)
         if not focus_id:
-            focus_id = self.lineage_focus_map.get(raw_value) or self._normalize_focus_input(raw_value)
+            QMessageBox.warning(self, "Ошибка", "Не удалось распознать ID объекта.")
+            return
 
-        # Определяем тип объекта
-        node_type, parsed_id, _ = self._parse_focus_label(raw_value)
-        if not node_type and parsed_id:
-            # Если тип не определился, попробуем определить по focus_id
-            if focus_id.startswith("s"):
-                node_type = "Таблица"
-            elif focus_id.startswith("A"):
-                node_type = "Столбец"
-            elif focus_id.startswith("M"):
-                node_type = "Мера"
-            elif focus_id.startswith("VIS:"):
-                node_type = "Визуал"
-            else:
-                node_type = ""
-
-        # Сохраняем оригинальные данные, если ещё не сохранены
         if not self._original_dfs:
             self._original_dfs = self.current_dfs.copy()
 
-        # Вычисляем ID визуалов, связанных с focus_id через lineage
-        visual_ids = set()
-        lineage_df = self._original_dfs.get("lineage")
-        if isinstance(lineage_df, pd.DataFrame) and not lineage_df.empty:
-            if "ID источника" in lineage_df.columns and "ID приемника" in lineage_df.columns:
-                # Находим строки, где focus_id является источником или приемником
-                mask = (lineage_df["ID источника"].astype(str).str.upper() == focus_id.upper()) | \
-                       (lineage_df["ID приемника"].astype(str).str.upper() == focus_id.upper())
-                related_rows = lineage_df[mask]
-                for _, row in related_rows.iterrows():
-                    src_type = str(row.get("Тип источника", "")).strip()
-                    src_id = str(row.get("ID источника", "")).strip()
-                    dst_type = str(row.get("Тип приемника", "")).strip()
-                    dst_id = str(row.get("ID приемника", "")).strip()
-                    if src_type == "Визуал" and src_id:
-                        visual_ids.add(src_id)
-                    if dst_type == "Визуал" and dst_id:
-                        visual_ids.add(dst_id)
-
-        # Фильтрация всех таблиц по focus_id и node_type
-        filtered_dfs = {}
-        for key, df in self._original_dfs.items():
-            # Пропускаем не-DataFrame значения (например, строки)
-            if not isinstance(df, pd.DataFrame):
-                filtered_dfs[key] = df
-                continue
-            if df is None or df.empty:
-                filtered_dfs[key] = df
-                continue
-            if key == "measures":
-                # Фильтруем меры по № меры
-                if "№ меры" in df.columns:
-                    filtered = df[df["№ меры"].astype(str).str.upper() == focus_id.upper()]
-                    filtered_dfs[key] = filtered
-                else:
-                    filtered_dfs[key] = df
-            elif key == "tables_ref":
-                # Находим номер таблицы для меры (если фокус - мера)
-                if node_type == "Мера" and "measures" in self._original_dfs:
-                    measures_df = self._original_dfs["measures"]
-                    if isinstance(measures_df, pd.DataFrame) and not measures_df.empty and "№ таблицы" in measures_df.columns:
-                        table_num = measures_df.loc[measures_df["№ меры"].astype(str).str.upper() == focus_id.upper(), "№ таблицы"].iloc[0] if not measures_df.empty else None
-                        if table_num is not None:
-                            filtered = df[df["№ таблицы"].astype(str) == str(table_num)]
-                            filtered_dfs[key] = filtered
-                        else:
-                            filtered_dfs[key] = pd.DataFrame(columns=df.columns)
-                    else:
-                        filtered_dfs[key] = pd.DataFrame(columns=df.columns)
-                else:
-                    # Для других типов оставляем пустым
-                    filtered_dfs[key] = pd.DataFrame(columns=df.columns)
-            elif key == "visuals":
-                # Фильтруем визуалы, которые используют focus_id (через lineage)
-                if "ID визуала" in df.columns:
-                    # Приводим ID визуала к формату VIS:...
-                    def normalize_visual_id(vid):
-                        vid_str = str(vid).strip()
-                        match = re.match(r"VIS_ID\s*:\s*(.+)$", vid_str, re.IGNORECASE)
-                        if match:
-                            return f"VIS:{match.group(1).strip()}"
-                        return vid_str
-                    df_normalized_ids = df["ID визуала"].apply(normalize_visual_id)
-                    filtered = df[df_normalized_ids.isin(visual_ids)]
-                    filtered_dfs[key] = filtered
-                else:
-                    filtered_dfs[key] = pd.DataFrame(columns=df.columns)
-            elif key == "lineage":
-                # Фильтруем lineage где ID источника или приемника равен focus_id
-                if "ID источника" in df.columns and "ID приемника" in df.columns:
-                    filtered = df[(df["ID источника"].astype(str).str.upper() == focus_id.upper()) |
-                                  (df["ID приемника"].astype(str).str.upper() == focus_id.upper())]
-                    filtered_dfs[key] = filtered
-                else:
-                    filtered_dfs[key] = df
-            elif key in ("lineage_upstream", "lineage_downstream"):
-                # Эти листы будут построены ниже
-                continue
-            else:
-                # Остальные листы оставляем пустыми
-                filtered_dfs[key] = pd.DataFrame(columns=df.columns)
-
-        # Строим upstream/downstream на основе отфильтрованного lineage
-        edges_df = filtered_dfs.get("lineage")
-        upstream_df, downstream_df = build_lineage_directions(edges_df, focus_id=focus_id)
-        filtered_dfs["lineage_upstream"] = upstream_df
-        filtered_dfs["lineage_downstream"] = downstream_df
-
-        # Обновляем current_dfs отфильтрованными данными
-        self.current_dfs = filtered_dfs
+        self.current_dfs = filter_dfs(self._original_dfs, focus_id, node_type)
         self._populate_tables(self.current_dfs)
         self.statusBar().showMessage(f"Фильтр применен: {raw_value}")
-        self.log(f"Фильтр: {raw_value} -> upstream={len(upstream_df)}, downstream={len(downstream_df)}")
+        self.log(
+            f"Фильтр: {raw_value} -> "
+            f"upstream={len(self.current_dfs['lineage_upstream'])}, "
+            f"downstream={len(self.current_dfs['lineage_downstream'])}"
+        )
         self.btn_clear_filter.setEnabled(True)
 
     def _clear_lineage_filter(self):
@@ -962,14 +632,14 @@ class PBITAnalyzerMainWindow(QMainWindow):
                 if str(file_kind).lower() == PBIX:
                     self.tab_widget.addTab(self._create_empty_tab(tab_name), tab_name)
                 continue
-            table = self._create_table_from_df(df, df_key=df_key)
+            table = create_table_from_df(df, df_key=df_key, log=self.log)
 
             # Wrap table with search bar (Task 2.3)
             tab_container = QWidget()
             tab_layout = QVBoxLayout(tab_container)
             tab_layout.setContentsMargins(0, 0, 0, 0)
             tab_layout.setSpacing(2)
-            search_bar = self._create_search_bar(table)
+            search_bar = SearchBar(table)
             tab_layout.addWidget(search_bar)
             tab_layout.addWidget(table, 1)
 
@@ -1022,66 +692,6 @@ class PBITAnalyzerMainWindow(QMainWindow):
             stats_lines.append(f"{tab_name}: {row_count}")
         stats_lines.extend(["", f"Всего строк по всем наборам: {total_rows}"])
         self.stats_output.setPlainText("\n".join(stats_lines))
-
-    def _create_table_from_df(self, df, df_key: str = ""):
-        table = CustomTableWidget()
-        table.setRowCount(len(df))
-        table.setColumnCount(len(df.columns))
-        table.setHorizontalHeaderLabels(df.columns.tolist())
-
-        for row_idx in range(len(df)):
-            for col_idx in range(len(df.columns)):
-                value = df.iloc[row_idx, col_idx]
-                
-                # Безопасная проверка на NA
-                is_na = False
-                try:
-                    na_result = pd.isna(value)
-                    if hasattr(na_result, '__len__'):
-                        # pd.isna вернул массив (например, для Series/ndarray)
-                        # считаем, что значение не является NA в смысле скаляра
-                        is_na = False
-                    else:
-                        is_na = bool(na_result)
-                except (ValueError, TypeError):
-                    # если pd.isna не может обработать тип, считаем не NA
-                    is_na = False
-
-                if is_na:
-                    text = ""
-                elif hasattr(value, '__len__') and not isinstance(value, str):
-                    # Массивоподобный объект (list, tuple, Series, ndarray)
-                    text = str(value)
-                    if len(text) > 200:
-                        text = text[:200] + '...'
-                elif isinstance(value, str) and '\n' in value:
-                    text = value[:200] + ('...' if len(value) > 200 else '')
-                else:
-                    text = str(value)
-                    
-                item = QTableWidgetItem(text)
-                tooltip = str(value) if len(str(value)) > 100 else ""
-                item.setToolTip(tooltip)
-                table.setItem(row_idx, col_idx, item)
-
-        header = table.horizontalHeader()
-        header.setStretchLastSection(True)
-        is_heavy_lineage_table = (
-            df_key in {"lineage", "lineage_upstream", "lineage_downstream"}
-            and len(df) >= LINEAGE_HEAVY_TABLE_ROWS_THRESHOLD
-        )
-        if is_heavy_lineage_table:
-            header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-            table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-            table.verticalHeader().setDefaultSectionSize(24)
-            self.log(
-                f"Таблица {df_key} большая ({len(df)} строк), "
-                "использован облегченный режим ширины колонок."
-            )
-        else:
-            header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-            table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        return table
 
     def _show_result_message(self, title: str, text: str, excel_path: str = "") -> None:
         """Итоговое окно с кнопками «ОК» и «Открыть Excel» (если файл создан)."""

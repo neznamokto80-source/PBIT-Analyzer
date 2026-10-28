@@ -47,7 +47,8 @@ use_utf8_output()
 if str(WORK_DIR) not in sys.path:
     sys.path.insert(0, str(WORK_DIR))
 
-FOCUS_ID_PATTERN = re.compile(r"(?i)^(s\d+|a\d+|m\d+|vis_id\s*:.+|vis:.+)$")
+from pbi_modules.focus import normalize_focus_id  # noqa: E402
+
 VISUAL_FOCUS_PATTERN = re.compile(r"(?i)^vis(:|_id)")
 
 
@@ -112,7 +113,6 @@ def self_test() -> int:
     """Smoke-тест сборки: проверяет импорт PBIX-модулей и бинарных зависимостей."""
     try:
         import pbixray  # noqa: F401
-
         from pbi_modules.dispatcher import analyze_file  # noqa: F401
         from pbi_modules.file_kind import detect_file_kind  # noqa: F401
         from pbi_modules.pbix_extractor import PBIXModelExtractor  # noqa: F401
@@ -129,29 +129,7 @@ def normalize_focus(value: str) -> str:
     Поддерживает как чистые ID (``S4``, ``A601``, ``M22``, ``VIS_ID :<id>``),
     так и подписи из выпадающего списка GUI (``Тип | ID | Имя``).
     """
-    raw = str(value or "").strip()
-    if not raw:
-        return ""
-
-    if "|" in raw:
-        for part in (item.strip() for item in raw.split("|")):
-            if FOCUS_ID_PATTERN.match(part):
-                return normalize_focus(part)
-        return ""
-
-    upper_raw = raw.upper()
-    if upper_raw.startswith("VIS_ID"):
-        match = re.match(r"VIS_ID\s*:\s*(.+)$", raw, re.IGNORECASE)
-        return f"VIS:{match.group(1).strip()}" if match else ""
-    if upper_raw.startswith("VIS:"):
-        return f"VIS:{raw[4:].strip()}"
-    if upper_raw.startswith("S"):
-        return f"s{raw[1:]}"
-    if upper_raw.startswith("A"):
-        return f"A{raw[1:]}"
-    if upper_raw.startswith("M"):
-        return f"M{raw[1:]}"
-    return raw
+    return normalize_focus_id(value)
 
 
 def _print_summary(pbit_path: Path, dfs: dict, focus: str, quiet: bool) -> None:

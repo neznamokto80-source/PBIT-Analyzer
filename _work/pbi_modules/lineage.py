@@ -3,9 +3,9 @@ from collections import deque
 
 import pandas as pd
 
+from .focus import extract_visual_id, normalize_focus_id
 
 REF_PATTERN = re.compile(r"([sS]\d+|A\d+|M\d+)")
-VISUAL_ID_PATTERN = re.compile(r"VIS_ID\s*:\s*(.+)$", re.IGNORECASE)
 
 
 def _iter_refs(value: str):
@@ -19,15 +19,8 @@ def _iter_refs(value: str):
 
 
 def _extract_visual_id(value: str) -> str:
-    raw = str(value or "").strip()
-    if not raw or raw == "None":
-        return ""
-    match = VISUAL_ID_PATTERN.match(raw)
-    if match:
-        return match.group(1).strip()
-    if raw.upper().startswith("VIS:"):
-        return raw[4:].strip()
-    return raw
+    """Совместимость: логика в focus.extract_visual_id."""
+    return extract_visual_id(value)
 
 
 def _node_type_by_ref(ref: str) -> str:
@@ -83,91 +76,51 @@ def _empty_direction_df() -> pd.DataFrame:
 
 
 def _normalize_focus_id(focus_id: str) -> str:
-    if focus_id is None:
-        return ""
-    normalized = str(focus_id).strip()
-    if not normalized:
-        return ""
-
-    normalized = normalized.replace("🔹", "").replace("📊", "").replace("📋", "").replace("📐", "").strip()
-    upper_value = normalized.upper()
-
-    if upper_value.startswith("VIS_ID"):
-        visual_id = _extract_visual_id(normalized)
-        return f"VIS:{visual_id}" if visual_id else ""
-    if upper_value.startswith("VIS:"):
-        return f"VIS:{normalized[4:].strip()}"
-
-    if upper_value.startswith("T:"):
-        return normalized[2:].strip()
-    if upper_value.startswith("C:"):
-        return normalized[2:].strip()
-    if upper_value.startswith("M:"):
-        return f"M{normalized[2:].strip().lstrip('M')}"
-
-    if upper_value.startswith("S"):
-        return f"s{normalized[1:]}"
-    if upper_value.startswith("A"):
-        return f"A{normalized[1:]}"
-    if upper_value.startswith("M"):
-        return f"M{normalized[1:]}"
-
-    return normalized
+    """Совместимость: единые правила в focus.normalize_focus_id."""
+    return normalize_focus_id(focus_id)
 
 
-def build_lineage_edges(dfs: dict) -> pd.DataFrame:
-    edges: list[dict] = []
-    table_names: dict[str, str] = {}
-    column_names: dict[str, str] = {}
-    measure_names: dict[str, str] = {}
-    visual_names: dict[str, str] = {}
+def _names_from(frame, id_column: str, name_column: str) -> dict[str, str]:
+    """Словарь ID → имя для справочника объектов."""
+    if frame is None or frame.empty or id_column not in frame.columns:
+        return {}
+    names: dict[str, str] = {}
+    name_values = frame[name_column] if name_column in frame.columns else [""] * len(frame)
+    for node_id, node_name in zip(frame[id_column], name_values):
+        node_id_text = str(node_id).strip()
+        if node_id_text:
+            names[node_id_text] = str(node_name).strip() or "—"
+    return names
 
-    tables_ref = dfs.get("tables_ref")
-    if tables_ref is not None and not tables_ref.empty:
-        for _, row in tables_ref.iterrows():
-            node_id = str(row.get("№ таблицы", "")).strip()
-            node_name = str(row.get("Имя таблицы", "")).strip()
-            if node_id:
-                table_names[node_id] = node_name or "—"
 
-    columns_ref = dfs.get("columns")
-    if columns_ref is not None and not columns_ref.empty:
-        for _, row in columns_ref.iterrows():
-            node_id = str(row.get("№ столбца", "")).strip()
-            node_name = str(row.get("Столбец", "")).strip()
-            if node_id:
-                column_names[node_id] = node_name or "—"
+def _visual_names(frame) -> dict[str, str]:
+    """ID визуала → «лист | тип» (для подписи узла)."""
+    if frame is None or frame.empty or "ID визуала" not in frame.columns:
+        return {}
+    names: dict[str, str] = {}
+    page_values = frame["Имя листа"] if "Имя листа" in frame.columns else [""] * len(frame)
+    type_values = frame["Тип визуала"] if "Тип визуала" in frame.columns else [""] * len(frame)
+    for visual_id_raw, page, visual_type in zip(frame["ID визуала"], page_values, type_values):
+        visual_id = _extract_visual_id(visual_id_raw)
+        if not visual_id:
+            continue
+        page_text = str(page).strip()
+        type_text = str(visual_type).strip()
+        names[f"VIS:{visual_id}"] = (
+            f"{page_text} | {type_text}" if page_text or type_text else visual_id
+        )
+    return names
 
-    measures_ref = dfs.get("measures")
-    if measures_ref is not None and not measures_ref.empty:
-        for _, row in measures_ref.iterrows():
-            node_id = str(row.get("№ меры", "")).strip()
-            node_name = str(row.get("Мера", "")).strip()
-            if node_id:
-                measure_names[node_id] = node_name or "—"
 
-    visuals_ref = dfs.get("visuals")
-    if visuals_ref is not None and not visuals_ref.empty:
-        for _, row in visuals_ref.iterrows():
-            visual_id = _extract_visual_id(row.get("ID визуала"))
-            page_name = str(row.get("Имя листа", "")).strip()
-            visual_type = str(row.get("Тип визуала", "")).strip()
-            if visual_id:
-                visual_names[f"VIS:{visual_id}"] = f"{page_name} | {visual_type}" if page_name or visual_type else visual_id
+class EdgeBuilder:
+    """Собирает рёбра lineage: отбрасывает пустые ID и дубликаты."""
 
-    def _resolve_node_name(node_id: str) -> str:
-        node_type = _node_type_by_ref(node_id)
-        if node_type == "Таблица":
-            return table_names.get(node_id, node_id)
-        if node_type == "Столбец":
-            return column_names.get(node_id, node_id)
-        if node_type == "Мера":
-            return measure_names.get(node_id, node_id)
-        if str(node_id).startswith("VIS:"):
-            return visual_names.get(node_id, node_id)
-        return node_id
+    def __init__(self, resolve_name):
+        self._resolve_name = resolve_name
+        self.edges: list[dict] = []
 
-    def add_edge(
+    def add(
+        self,
         from_type: str,
         from_id: str,
         from_name: str,
@@ -176,10 +129,10 @@ def build_lineage_edges(dfs: dict) -> pd.DataFrame:
         to_name: str,
         relation_type: str,
         context: str = "",
-    ):
+    ) -> None:
         if not from_id or not to_id:
             return
-        edges.append(
+        self.edges.append(
             {
                 "Тип источника": from_type,
                 "ID источника": from_id,
@@ -192,100 +145,134 @@ def build_lineage_edges(dfs: dict) -> pd.DataFrame:
             }
         )
 
-    sources = dfs.get("sources")
-    if sources is not None and not sources.empty:
-        for idx, row in sources.iterrows():
-            table_id = str(row.get("№ таблицы", "")).strip()
-            table_name = str(row.get("Таблица", "")).strip()
-            src_id = f"SRC:{table_id}:{idx + 1}"
-            src_name = str(row.get("Тип источника", "")).strip()
-            add_edge("Источник", src_id, src_name, "Таблица", table_id, table_name, "Подача данных")
+    def add_dependency(
+        self,
+        dep_ref: str,
+        to_type: str,
+        to_id: str,
+        to_name: str,
+        context: str,
+    ) -> None:
+        """Ребро «объект зависит от dep_ref»."""
+        self.add(
+            _node_type_by_ref(dep_ref),
+            dep_ref,
+            self._resolve_name(dep_ref),
+            to_type,
+            to_id,
+            to_name,
+            "Зависит от",
+            context,
+        )
 
-    columns = dfs.get("columns")
-    if columns is not None and not columns.empty:
-        for _, row in columns.iterrows():
-            table_id = str(row.get("№ таблицы", "")).strip()
-            table_name = str(row.get("Таблица", "")).strip()
-            col_id = str(row.get("№ столбца", "")).strip()
-            col_name = str(row.get("Столбец", "")).strip()
-            add_edge("Таблица", table_id, table_name, "Столбец", col_id, col_name, "Содержит")
+    def frame(self) -> pd.DataFrame:
+        if not self.edges:
+            return _empty_lineage_df()
+        return pd.DataFrame(self.edges).drop_duplicates().reset_index(drop=True)
 
-            for dep_ref in _iter_refs(str(row.get("Зависимости", ""))):
-                add_edge(
-                    _node_type_by_ref(dep_ref),
-                    dep_ref,
-                    _resolve_node_name(dep_ref),
-                    "Столбец",
-                    col_id,
-                    col_name,
-                    "Зависит от",
-                    "Вычисляемый столбец",
-                )
 
-    measures = dfs.get("measures")
-    if measures is not None and not measures.empty:
-        for _, row in measures.iterrows():
-            table_id = _clean_node_id(row.get("№ таблицы", ""))
-            table_name = str(row.get("Таблица", "")).strip()
-            measure_id = str(row.get("№ меры", "")).strip()
-            measure_name = str(row.get("Мера", "")).strip()
-            add_edge("Таблица", table_id, table_name, "Мера", measure_id, measure_name, "Содержит")
+def _add_source_edges(builder: EdgeBuilder, sources) -> None:
+    """Источник данных → таблица."""
+    if sources is None or sources.empty:
+        return
+    for position, (_, row) in enumerate(sources.iterrows(), 1):
+        table_id = str(row.get("№ таблицы", "")).strip()
+        table_name = str(row.get("Таблица", "")).strip()
+        src_id = f"SRC:{table_id}:{position}"
+        src_name = str(row.get("Тип источника", "")).strip()
+        builder.add("Источник", src_id, src_name, "Таблица", table_id, table_name, "Подача данных")
 
-            for dep_ref in _iter_refs(str(row.get("Зависимости", ""))):
-                add_edge(
-                    _node_type_by_ref(dep_ref),
-                    dep_ref,
-                    _resolve_node_name(dep_ref),
-                    "Мера",
-                    measure_id,
-                    measure_name,
-                    "Зависит от",
-                    "Формула меры",
-                )
 
-    visuals = dfs.get("visuals")
-    if visuals is not None and not visuals.empty:
-        for _, row in visuals.iterrows():
-            page_name = str(row.get("Имя листа", "")).strip()
-            visual_id_raw = row.get("ID визуала")
-            visual_id = _extract_visual_id(visual_id_raw)
-            if not visual_id:
-                continue
-            visual_node_id = f"VIS:{visual_id}"
-            visual_name = f"{page_name}:{visual_id}" if page_name else visual_id
+def _add_column_edges(builder: EdgeBuilder, columns) -> None:
+    """Таблица → столбец и зависимости вычисляемого столбца."""
+    if columns is None or columns.empty:
+        return
+    for _, row in columns.iterrows():
+        table_id = str(row.get("№ таблицы", "")).strip()
+        table_name = str(row.get("Таблица", "")).strip()
+        col_id = str(row.get("№ столбца", "")).strip()
+        col_name = str(row.get("Столбец", "")).strip()
+        builder.add("Таблица", table_id, table_name, "Столбец", col_id, col_name, "Содержит")
+        for dep_ref in _iter_refs(str(row.get("Зависимости", ""))):
+            builder.add_dependency(dep_ref, "Столбец", col_id, col_name, "Вычисляемый столбец")
 
-            table_ref_value = str(row.get("№ таблицы", "")).strip()
-            field_ref_value = str(row.get("№ столбца/меры", "")).strip()
-            role = str(row.get("Роль", "")).strip()
 
-            for table_ref in _iter_refs(table_ref_value):
-                add_edge(
-                    "Таблица",
-                    table_ref,
-                    _resolve_node_name(table_ref),
-                    "Визуал",
-                    visual_node_id,
-                    visual_name,
-                    "Используется в",
-                    role,
-                )
-            for field_ref in _iter_refs(field_ref_value):
-                add_edge(
-                    _node_type_by_ref(field_ref),
-                    field_ref,
-                    _resolve_node_name(field_ref),
-                    "Визуал",
-                    visual_node_id,
-                    visual_name,
-                    "Используется в",
-                    role,
-                )
+def _add_measure_edges(builder: EdgeBuilder, measures) -> None:
+    """Таблица → мера и зависимости формулы меры."""
+    if measures is None or measures.empty:
+        return
+    for _, row in measures.iterrows():
+        table_id = _clean_node_id(row.get("№ таблицы", ""))
+        table_name = str(row.get("Таблица", "")).strip()
+        measure_id = str(row.get("№ меры", "")).strip()
+        measure_name = str(row.get("Мера", "")).strip()
+        builder.add("Таблица", table_id, table_name, "Мера", measure_id, measure_name, "Содержит")
+        for dep_ref in _iter_refs(str(row.get("Зависимости", ""))):
+            builder.add_dependency(dep_ref, "Мера", measure_id, measure_name, "Формула меры")
 
-    if not edges:
-        return _empty_lineage_df()
 
-    edges_df = pd.DataFrame(edges).drop_duplicates().reset_index(drop=True)
-    return edges_df
+def _add_visual_edges(builder: EdgeBuilder, visuals) -> None:
+    """Таблица/поле → визуал."""
+    if visuals is None or visuals.empty:
+        return
+    for _, row in visuals.iterrows():
+        page_name = str(row.get("Имя листа", "")).strip()
+        visual_id = _extract_visual_id(row.get("ID визуала"))
+        if not visual_id:
+            continue
+        visual_node_id = f"VIS:{visual_id}"
+        visual_name = f"{page_name}:{visual_id}" if page_name else visual_id
+        role = str(row.get("Роль", "")).strip()
+
+        for table_ref in _iter_refs(str(row.get("№ таблицы", "")).strip()):
+            builder.add(
+                "Таблица",
+                table_ref,
+                builder._resolve_name(table_ref),
+                "Визуал",
+                visual_node_id,
+                visual_name,
+                "Используется в",
+                role,
+            )
+        for field_ref in _iter_refs(str(row.get("№ столбца/меры", "")).strip()):
+            builder.add(
+                _node_type_by_ref(field_ref),
+                field_ref,
+                builder._resolve_name(field_ref),
+                "Визуал",
+                visual_node_id,
+                visual_name,
+                "Используется в",
+                role,
+            )
+
+
+def build_lineage_edges(dfs: dict) -> pd.DataFrame:
+    """Строит рёбра lineage по справочникам и зависимостям."""
+    table_names = _names_from(dfs.get("tables_ref"), "№ таблицы", "Имя таблицы")
+    column_names = _names_from(dfs.get("columns"), "№ столбца", "Столбец")
+    measure_names = _names_from(dfs.get("measures"), "№ меры", "Мера")
+    visual_names = _visual_names(dfs.get("visuals"))
+
+    def resolve(node_id: str) -> str:
+        node_type = _node_type_by_ref(node_id)
+        if node_type == "Таблица":
+            return table_names.get(node_id, node_id)
+        if node_type == "Столбец":
+            return column_names.get(node_id, node_id)
+        if node_type == "Мера":
+            return measure_names.get(node_id, node_id)
+        if str(node_id).startswith("VIS:"):
+            return visual_names.get(node_id, node_id)
+        return node_id
+
+    builder = EdgeBuilder(resolve)
+    _add_source_edges(builder, dfs.get("sources"))
+    _add_column_edges(builder, dfs.get("columns"))
+    _add_measure_edges(builder, dfs.get("measures"))
+    _add_visual_edges(builder, dfs.get("visuals"))
+    return builder.frame()
 
 
 def _build_focus_nodes(edges_df: pd.DataFrame) -> list[tuple[str, str, str]]:

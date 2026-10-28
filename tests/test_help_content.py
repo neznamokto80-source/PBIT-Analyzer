@@ -8,9 +8,9 @@ from pbi_modules import help_content
 def _make_bundle(root: Path) -> Path:
     """Повторяет раскладку onefile-сборки: документы рядом с папкой pbi_modules."""
     (root / "pbi_modules").mkdir(parents=True)
-    (root / "schema_documentation.md").write_text("# Схема PBIT\n\nТекст", encoding="utf-8")
-    (root / "plan").mkdir()
-    (root / "plan" / "CHANGELOG.md").write_text("# Changelog\n\n- пункт", encoding="utf-8")
+    (root / "docs").mkdir()
+    (root / "docs" / "schema_documentation.md").write_text("# Схема PBIT\n\nТекст", encoding="utf-8")
+    (root / "docs" / "CHANGELOG.md").write_text("# Changelog\n\n- пункт", encoding="utf-8")
     return root
 
 

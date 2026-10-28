@@ -29,18 +29,20 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pyinstaller
+          python -m pip install -r requirements-dev.txt
 
       - name: Lint
         run: python -m ruff check run_cli.py run_gui.py build_exe.py _work/pbi_modules tests
 
       - name: Tests
-        run: python -m pytest -q
+        run: python -m pytest -q --cov=pbi_modules --cov-fail-under=60
 
       - name: Build (${{ matrix.target }})
         run: python build_exe.py --${{ matrix.target }} --no-copy

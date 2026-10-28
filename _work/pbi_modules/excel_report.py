@@ -1,9 +1,12 @@
-from datetime import datetime
 import logging
+from datetime import datetime
 
 import pandas as pd
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+
+from .file_kind import PBIT, PBIX
+from .schemas import columns_for, sheets_for
 
 HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
 HEADER_FONT = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
@@ -20,38 +23,9 @@ logger = logging.getLogger(__name__)
 
 
 class ExcelReportGenerator:
-    SHEETS_ORDER = [
-        ("Справочник таблиц", "tables_ref"),
-        ("Столбцы", "columns"),
-        ("Источники", "sources"),
-        ("Связи", "relationships"),
-        ("Меры", "measures"),
-        ("Листы", "sheets"),
-        ("Визуальные элементы", "visuals"),
-        ("Линейдж", "lineage"),
-        ("Lineage_Upstream", "lineage_upstream"),
-        ("Lineage_Downstream", "lineage_downstream"),
-        ("Условное форматирование", "conditional"),
-        ("Статистика", "stats"),
-    ]
-
-    # PBIX не содержит слоя отчёта: визуальных листов нет, зато есть
-    # метаданные модели, которых нет в .pbit (DAX, M, RLS/OLS, статистика хранения).
-    SHEETS_ORDER_PBIX = [
-        ("Справочник таблиц", "tables_ref"),
-        ("Столбцы", "columns"),
-        ("Источники", "sources"),
-        ("Связи", "relationships"),
-        ("Меры", "measures"),
-        ("Параметры M", "m_parameters"),
-        ("Безопасность (RLS)", "rls"),
-        ("Безопасность (OLS)", "ols"),
-        ("Линейдж", "lineage"),
-        ("Lineage_Upstream", "lineage_upstream"),
-        ("Lineage_Downstream", "lineage_downstream"),
-        ("Статистика хранения", "statistics"),
-        ("Статистика", "stats"),
-    ]
+    # Совместимость: списки листов берутся из единого реестра schemas.py.
+    SHEETS_ORDER = list(sheets_for(PBIT))
+    SHEETS_ORDER_PBIX = list(sheets_for(PBIX))
 
     def __init__(self, output_path: str, dfs: dict, source_file: str, sheets: list[tuple[str, str]] | None = None):
         self.output_path = output_path
@@ -59,10 +33,10 @@ class ExcelReportGenerator:
         self.source_file = source_file
         self.sheets = sheets or self.SHEETS_ORDER
 
-    @classmethod
-    def sheets_for(cls, file_kind: str) -> list[tuple[str, str]]:
+    @staticmethod
+    def sheets_for(file_kind: str) -> list[tuple[str, str]]:
         """Набор листов по типу файла: pbit — прежний, pbix — модельный."""
-        return cls.SHEETS_ORDER_PBIX if str(file_kind).lower() == "pbix" else cls.SHEETS_ORDER
+        return list(sheets_for(file_kind))
 
     def generate(self):
         with pd.ExcelWriter(self.output_path, engine="openpyxl") as writer:
@@ -130,75 +104,14 @@ class ExcelReportGenerator:
 
                 i = end + 1
 
-        except Exception as e:
-            logger.warning("Предупреждение при объединении ячеек: %s", e)
+        except (ValueError, TypeError, KeyError, IndexError) as error:
+            logger.warning("Объединение ячеек «%s» не выполнено: %s", sheet_name, error)
+        except Exception as error:  # noqa: BLE001 — оформление не должно ломать выгрузку
+            logger.exception("Неожиданная ошибка объединения ячеек «%s»: %s", sheet_name, error)
 
     def _get_columns(self, df_key: str):
-        col_map = {
-            "tables_ref": ["№ таблицы", "Имя таблицы", "Описание"],
-            "columns": ["№ столбца", "№ таблицы", "Таблица", "Столбец",
-                         "Описание", "Тип данных", "Тип значения", "Формат",
-                         "Сортировка по столбцу", "Агрегация по умолчанию",
-                         "Формула (если вычисляемый)", "Зависимости"],
-            "sources": ["№ таблицы", "Таблица", "Тип источника", "Как создается", "Зависимости"],
-            "relationships": ["Название связи", "Откуда", "Куда", "Состояние"],
-            "measures": ["№ меры", "№ таблицы", "Таблица", "Мера", "Описание", "Формула (DAX)",
-                          "Формат", "Папка отображения", "Зависимости"],
-            "sheets": ["№ листа", "Имя листа", "ID листа", "Видимость", "Количество визуалов", "Размеры"],
-            "visuals": [
-                "Имя листа", "ID визуала", "Тип визуала",
-                "Роль", "Порядок", "Поле", "Отображаемое имя",
-                "№ таблицы", "№ столбца/меры", "Расположение",
-                "FilterTargetEntity", "FilterTargetProperty", "FilterExpressionShort",
-            ],
-            "conditional": [
-                "Имя листа", "ID визуала", "Поле", "Элемент", "Правило", "Цвет",
-            ],
-            "lineage": [
-                "Тип источника",
-                "ID источника",
-                "Имя источника",
-                "Тип приемника",
-                "ID приемника",
-                "Имя приемника",
-                "Тип связи",
-                "Контекст",
-            ],
-            "lineage_upstream": [
-                "ID фокуса",
-                "Тип фокуса",
-                "Имя фокуса",
-                "Тип источника",
-                "ID источника",
-                "Имя источника",
-                "Тип приемника",
-                "ID приемника",
-                "Имя приемника",
-                "Тип связи",
-                "Контекст",
-            ],
-            "lineage_downstream": [
-                "ID фокуса",
-                "Тип фокуса",
-                "Имя фокуса",
-                "Тип источника",
-                "ID источника",
-                "Имя источника",
-                "Тип приемника",
-                "ID приемника",
-                "Имя приемника",
-                "Тип связи",
-                "Контекст",
-            ],
-            "stats": ["Параметр", "Значение"],
-            "dax": ["Тип объекта", "№ таблицы", "Таблица", "Имя", "Выражение"],
-            "power_query": ["Таблица", "Запрос (M)"],
-            "m_parameters": ["Параметр", "Описание", "Выражение", "Изменён"],
-            "rls": ["Роль", "Таблица", "Фильтр", "Состояние", "Описание"],
-            "ols": ["Роль", "Таблица", "Столбец", "Область", "Права"],
-            "statistics": ["Таблица", "Столбец", "Кардинальность", "Словарь", "HashIndex", "DataSize"],
-        }
-        return col_map.get(df_key, [])
+        """Колонки листа — из единого реестра схем."""
+        return list(columns_for(df_key))
 
     def _format_sheet(self, writer, sheet_name: str):
         wb = writer.book

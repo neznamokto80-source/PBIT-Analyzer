@@ -5,13 +5,14 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog,
-    QVBoxLayout,
     QHBoxLayout,
     QPushButton,
     QTabWidget,
     QTextEdit,
+    QVBoxLayout,
 )
-from .help_content import HELP_TEXT, load_schema_doc_html, load_changelog_html
+
+from .help_content import HELP_TEXT, load_changelog_html, load_schema_doc_html
 
 
 class HelpDialog(QDialog):
@@ -48,7 +49,7 @@ class HelpDialog(QDialog):
         self.schema_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         tabs.addTab(self.schema_edit, "Схема PBIT")
 
-        # Вкладка "Changelog" — загружается из plan/CHANGELOG.md
+        # Вкладка "Changelog" — загружается из docs/CHANGELOG.md
         self.changelog_edit = QTextEdit()
         self.changelog_edit.setReadOnly(True)
         self.changelog_edit.setAcceptRichText(True)

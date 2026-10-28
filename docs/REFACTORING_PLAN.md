@@ -1,7 +1,7 @@
 # План рефакторинга PBIT Analyzer
 
 **Дата:** 2026-10-28
-**Версия кода:** 2.2.0 (по `plan/CHANGELOG.md`)
+**Версия кода:** 2.2.0 (по `docs/CHANGELOG.md`)
 **Статус документа:** план согласован с решением «код не меняем — только зафиксировать, что необходимо сделать»
 **Область:** `_work/pbi_modules/*`, `run_cli.py`, `run_gui.py`, `build_exe.py`, `create_exe.bat`, `tests/*`, структура репозитория.
 
@@ -353,7 +353,7 @@ lineage (граф из 5 узлов), Excel (набор листов и заго
 
 **P-27 — P2 — `build_exe.py` (424 строки, 13 функций)**
 Смешивает: определение версии, список hidden-import'ов, установку пакетов, вызов PyInstaller,
-копирование, очистку. `APP_VERSION` читается регуляркой из `plan/CHANGELOG.md`
+копирование, очистку. `APP_VERSION` читается регуляркой из `docs/CHANGELOG.md`
 (`build_exe.py:64-78`) — падение при смене формата заголовка даёт `_v0`.
 *Что делать:* `pbi_modules/version.py` с `__version__` (единственный источник), CHANGELOG читается
 только для проверки совпадения; разнести на `packaging/hidden_imports.py`, `packaging/clean.py`.
@@ -633,7 +633,7 @@ py -3 -m pytest tests/test_excel_contract.py -q
   `__pycache__` убран из индекса.
 - `create_exe.bat` — обёртка над `build_exe.py`; `tasks.bat` удалён.
 - После сборки остаются только EXE в корне (`dist/` удаляется; сохраняется для `--no-copy`/CI).
-- Справка в EXE находит `schema_documentation.md` и `plan/CHANGELOG.md` (ищет `sys._MEIPASS`).
+- Справка в EXE находит `docs/schema_documentation.md` и `docs/CHANGELOG.md` (ищет `sys._MEIPASS`).
 - Кнопки «ОК»/«Открыть Excel» в итоговом диалоге.
 - Вкладка/лист «Перспективы» убраны; «DAX» и «Power Query» объединены с «Мерами»/«Столбцами»/«Источниками».
 - `Layout` в `Report/` поддерживается (`file_kind`, `analyzer`).

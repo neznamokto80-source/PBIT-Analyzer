@@ -2,7 +2,6 @@ import json
 import zipfile
 
 import pytest
-
 from pbi_modules import dispatcher
 from pbi_modules.file_kind import PBIT, PBIX, FileFormatError, detect_file_kind
 

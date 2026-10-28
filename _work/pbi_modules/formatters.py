@@ -25,41 +25,44 @@ class DAXFormatter:
         return str(expression).strip()
 
     @staticmethod
-    def _format_with_name(name: str, expression) -> str:
+    def _render(name: str, expression) -> str:
+        """Общий рендер DAX: префикс «Имя =», VAR/RETURN и отступы."""
         expr = DAXFormatter._normalize_expression(expression)
         if not expr:
             return "—"
+        result_lines = [f"{name} ="] if name else []
         tokens = DAXFormatter._split_var_return(expr)
         merged = DAXFormatter._merge_tokens(tokens)
-        result_lines = [f"{name} ="]
         for token in merged:
             token_stripped = token.strip()
             token_lower = token_stripped.lower()
-            if token_lower.startswith('var'):
-                var_part = re.sub(r'^var\s+', '', token_stripped, flags=re.IGNORECASE).strip()
+            if token_lower.startswith("var"):
+                var_part = re.sub(r"^var\s+", "", token_stripped, flags=re.IGNORECASE).strip()
                 eq_idx = var_part.find("=")
                 if eq_idx > 0:
                     var_name = var_part[:eq_idx].strip()
                     var_expr = var_part[eq_idx + 1:].strip()
                     result_lines.append(f"VAR {var_name} =")
-                    formatted = DAXFormatter._format_expression(var_expr)
-                    for eline in formatted.split('\n'):
-                        if eline.strip():
-                            result_lines.append("    " + eline)
-            elif token_lower.startswith('return'):
+                    for line in DAXFormatter._format_expression(var_expr).split("\n"):
+                        if line.strip():
+                            result_lines.append("    " + line)
+            elif token_lower.startswith("return"):
                 result_lines.append("RETURN")
-                return_expr = re.sub(r'^return\s*', '', token_stripped, flags=re.IGNORECASE).strip()
+                return_expr = re.sub(r"^return\s*", "", token_stripped, flags=re.IGNORECASE).strip()
                 if return_expr:
-                    formatted = DAXFormatter._format_expression(return_expr)
-                    for eline in formatted.split('\n'):
-                        if eline.strip():
-                            result_lines.append("    " + eline)
+                    for line in DAXFormatter._format_expression(return_expr).split("\n"):
+                        if line.strip():
+                            result_lines.append("    " + line)
             else:
-                formatted = DAXFormatter._format_expression(token_stripped)
-                for eline in formatted.split('\n'):
-                    if eline.strip():
-                        result_lines.append("    " + eline)
-        return '\n'.join(result_lines)
+                for line in DAXFormatter._format_expression(token_stripped).split("\n"):
+                    if line.strip():
+                        result_lines.append("    " + line)
+        return "\n".join(result_lines)
+
+    @staticmethod
+    def _format_with_name(name: str, expression) -> str:
+        """Рендер формулы с именем объекта."""
+        return DAXFormatter._render(name, expression)
 
     @staticmethod
     def _split_var_return(expr: str) -> list:
@@ -100,7 +103,7 @@ class DAXFormatter:
         return expr
 
     @staticmethod
-    def _add_spaces_operators(expr: str) -> str:
+    def _add_spaces_operators(expr: str, after_paren: bool = False) -> str:
         comments = []
         def save_comment(m):
             comments.append(m.group(0))
@@ -119,6 +122,8 @@ class DAXFormatter:
         expr = re.sub(r'\s*<=\s*', ' <= ', expr)
         expr = re.sub(r'\s*>=\s*', ' >= ', expr)
         expr = re.sub(r'(?<![<>=!&|])\s*=\s*(?![<>=!&|])', ' = ', expr)
+        if after_paren:
+            expr = re.sub(r'\)(\s*)(?=[A-Za-zа-яА-ЯёЁ0-9_\[\(])', ') ', expr)
         expr = re.sub(r'(?<!&)&(?!&)', ' & ', expr)
         expr = re.sub(r'\|\|', '||', expr)
         expr = re.sub(r'&&', '&&', expr)
@@ -175,39 +180,8 @@ class DAXFormatter:
 
     @staticmethod
     def _apply_operator_spacing(expr: str) -> str:
-        comments = []
-        def save_comment(m):
-            comments.append(m.group(0))
-            return f"__CMT{len(comments)-1}__"
-        expr = re.sub(r'--[^\n]*', save_comment, expr)
-        strings = []
-        def save_sq(m):
-            strings.append(m.group(0))
-            return f"__SQ{len(strings)-1}__"
-        def save_dq(m):
-            strings.append(m.group(0))
-            return f"__DQ{len(strings)-1}__"
-        expr = re.sub(r"'[^']*'", save_sq, expr)
-        expr = re.sub(r'"(?:[^"\\]|\\.)*"', save_dq, expr)
-        expr = re.sub(r'\s*<>\s*', ' <> ', expr)
-        expr = re.sub(r'\s*<=\s*', ' <= ', expr)
-        expr = re.sub(r'\s*>=\s*', ' >= ', expr)
-        expr = re.sub(r'(?<![<>=!&|])\s*=\s*(?![<>=!&|])', ' = ', expr)
-        expr = re.sub(r'\)(\s*)(?=[A-Za-zа-яА-ЯёЁ0-9_\[\(])', ') ', expr)
-        expr = re.sub(r'(?<!&)&(?!&)', ' & ', expr)
-        expr = re.sub(r'\|\|', '||', expr)
-        expr = re.sub(r'&&', '&&', expr)
-        expr = re.sub(r'(?<!\+)\+(?!\+)', ' + ', expr)
-        expr = re.sub(r'(?<!-)-(?![->])', ' - ', expr)
-        expr = re.sub(r'\s*<\s*(?!=)', ' < ', expr)
-        expr = re.sub(r'\s*>\s*(?!=)', ' > ', expr)
-        expr = re.sub(r'  +', ' ', expr)
-        for i, s in enumerate(strings):
-            expr = expr.replace(f"__SQ{i}__", s)
-            expr = expr.replace(f"__DQ{i}__", s)
-        for i, c in enumerate(comments):
-            expr = expr.replace(f"__CMT{i}__", c)
-        return expr.strip()
+        """Пробелы у операторов и после «)» перед именем аргумента."""
+        return DAXFormatter._add_spaces_operators(expr, after_paren=True)
 
     @staticmethod
     def _split_top_level(expr: str, delimiter: str) -> list:
@@ -282,6 +256,7 @@ class DAXFormatter:
 
     @staticmethod
     def format_dax_formula(formula):
+        """Форматирует формулу, где имя объекта записано перед ``=``."""
         if not formula:
             return "—"
         if isinstance(formula, list):
@@ -289,48 +264,20 @@ class DAXFormatter:
         formula = str(formula).strip()
         if not formula or formula == "Нет формулы":
             return formula if formula else "—"
-        formula = re.sub(r'[\r\n\t]+', ' ', formula)
-        formula = re.sub(r'  +', ' ', formula)
-        measure_name = ""
-        eq_match = re.match(r'^((?!var\b|return\b)[a-zA-Zа-яА-ЯёЁ0-9_\s!?]+?)\s*=\s*(.*)', formula, re.DOTALL | re.IGNORECASE)
+        formula = re.sub(r"[\r\n\t]+", " ", formula)
+        formula = re.sub(r"  +", " ", formula)
+        name = ""
+        eq_match = re.match(
+            r"^((?!var\b|return\b)[a-zA-Zа-яА-ЯёЁ0-9_\s!?]+?)\s*=\s*(.*)",
+            formula,
+            re.DOTALL | re.IGNORECASE,
+        )
         if eq_match:
             prefix = eq_match.group(1).strip()
             if len(prefix) < 50:
-                measure_name = prefix + " = "
+                name = prefix
                 formula = eq_match.group(2).strip()
-        tokens = DAXFormatter._split_var_return(formula)
-        merged = DAXFormatter._merge_tokens(tokens)
-        result_lines = []
-        if measure_name.strip():
-            result_lines.append(measure_name.strip())
-        for token in merged:
-            token_stripped = token.strip()
-            token_lower = token_stripped.lower()
-            if token_lower.startswith('var'):
-                var_part = re.sub(r'^var\s+', '', token_stripped, flags=re.IGNORECASE).strip()
-                eq_idx = var_part.find("=")
-                if eq_idx > 0:
-                    var_name = var_part[:eq_idx].strip()
-                    var_expr = var_part[eq_idx + 1:].strip()
-                    result_lines.append(f"VAR {var_name} =")
-                    formatted = DAXFormatter._format_expression(var_expr)
-                    for eline in formatted.split('\n'):
-                        if eline.strip():
-                            result_lines.append("    " + eline)
-            elif token_lower.startswith('return'):
-                result_lines.append("RETURN")
-                return_expr = re.sub(r'^return\s*', '', token_stripped, flags=re.IGNORECASE).strip()
-                if return_expr:
-                    formatted = DAXFormatter._format_expression(return_expr)
-                    for eline in formatted.split('\n'):
-                        if eline.strip():
-                            result_lines.append("    " + eline)
-            else:
-                formatted = DAXFormatter._format_expression(token_stripped)
-                for eline in formatted.split('\n'):
-                    if eline.strip():
-                        result_lines.append("    " + eline)
-        return '\n'.join(result_lines)
+        return DAXFormatter._render(name, formula)
 
 
 class SQLFormatter:

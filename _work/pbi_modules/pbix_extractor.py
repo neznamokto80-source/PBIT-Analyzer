@@ -20,6 +20,8 @@ import pandas as pd
 
 from .extractors import COLUMN_ICON, MEASURE_ICON, TABLE_ICON, DependencyAnalyzer
 from .formatters import DAXFormatter, SourceFormatter
+from .ids import column_number, measure_number, table_number
+from .schemas import columns_for
 
 logger = logging.getLogger(__name__)
 
@@ -57,25 +59,19 @@ SUMMARIZE_MAP = {
     4: "Max",
 }
 
-TABLES_REF_COLUMNS = ["№ таблицы", "Имя таблицы", "Описание"]
-COLUMNS_SCHEMA = [
-    "№ столбца", "№ таблицы", "Таблица", "Столбец", "Описание", "Тип данных",
-    "Тип значения", "Формат", "Сортировка по столбцу", "Агрегация по умолчанию",
-    "Формула (если вычисляемый)", "Зависимости",
-]
-MEASURES_SCHEMA = [
-    "№ меры", "№ таблицы", "Таблица", "Мера", "Описание", "Формула (DAX)",
-    "Формат", "Папка отображения", "Зависимости",
-]
-SOURCES_SCHEMA = ["№ таблицы", "Таблица", "Тип источника", "Как создается", "Зависимости"]
-RELATIONSHIPS_SCHEMA = ["Название связи", "Откуда", "Куда", "Состояние"]
-DAX_SCHEMA = ["Тип объекта", "№ таблицы", "Таблица", "Имя", "Выражение"]
-POWER_QUERY_SCHEMA = ["Таблица", "Запрос (M)"]
-M_PARAMETERS_SCHEMA = ["Параметр", "Описание", "Выражение", "Изменён"]
-RLS_SCHEMA = ["Роль", "Таблица", "Фильтр", "Состояние", "Описание"]
-OLS_SCHEMA = ["Роль", "Таблица", "Столбец", "Область", "Права"]
-PERSPECTIVES_SCHEMA = ["Перспектива", "Тип объекта", "Таблица", "Объект", "Включить все"]
-STATISTICS_SCHEMA = ["Таблица", "Столбец", "Кардинальность", "Словарь", "HashIndex", "DataSize"]
+# Схемы колонок — из единого реестра schemas.py (не дублируем списки).
+TABLES_REF_COLUMNS = list(columns_for("tables_ref"))
+COLUMNS_SCHEMA = list(columns_for("columns"))
+MEASURES_SCHEMA = list(columns_for("measures"))
+SOURCES_SCHEMA = list(columns_for("sources"))
+RELATIONSHIPS_SCHEMA = list(columns_for("relationships"))
+DAX_SCHEMA = list(columns_for("dax"))
+POWER_QUERY_SCHEMA = list(columns_for("power_query"))
+M_PARAMETERS_SCHEMA = list(columns_for("m_parameters"))
+RLS_SCHEMA = list(columns_for("rls"))
+OLS_SCHEMA = list(columns_for("ols"))
+PERSPECTIVES_SCHEMA = list(columns_for("perspectives"))
+STATISTICS_SCHEMA = list(columns_for("statistics"))
 
 
 def _clean(value: Any) -> str:
@@ -125,7 +121,7 @@ class PBIXModelExtractor:
         self.warnings: list[str] = []
         self.tables = self._read_tables()
         self.table_names = {name for name, _ in self.tables}
-        self.table_number = {name: f"s{idx}" for idx, (name, _) in enumerate(self.tables, 1)}
+        self.table_number = {name: table_number(idx) for idx, (name, _) in enumerate(self.tables, 1)}
         self._table_columns: dict[str, list[str]] = {}
         self.column_to_table: dict[str, str] = {}
         self.measure_to_number: dict[str, str] = {}
@@ -213,7 +209,7 @@ class PBIXModelExtractor:
                     continue
                 table_cols.append(col_name)
                 self.column_to_table.setdefault(col_name, table_name)
-                col_num = f"A{t_num[1:]}{ci:02d}"
+                col_num = column_number(t_num, ci)
                 self._column_meta.append((table_name, t_num, col_num, col_name, row))
             self._table_columns[table_name] = table_cols
 
@@ -241,7 +237,7 @@ class PBIXModelExtractor:
                 if not measure_name:
                     continue
                 m_counter += 1
-                m_num = f"M{m_counter}"
+                m_num = measure_number(m_counter)
                 self.measure_to_number[measure_name] = m_num
                 self._measure_meta.append(
                     (table_name, t_num, m_num, measure_name, row)
@@ -264,7 +260,7 @@ class PBIXModelExtractor:
             return ""
         for ci, name in enumerate(self._table_columns.get(table_name, []), 1):
             if name == col_name:
-                return f"A{t_num[1:]}{ci:02d}"
+                return column_number(t_num, ci)
         return ""
 
     def _build_column_row(self, table_name: str, t_num: str, col_num: str, col_name: str, row: Any) -> dict:

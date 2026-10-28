@@ -1,5 +1,47 @@
 # Changelog
 
+## [2.3.0] — 2026-10-28
+
+Рефакторинг по `docs/REFACTORING_PLAN.md` без изменения поведения: те же вкладки,
+листы Excel, заголовки колонок и коды возврата CLI.
+
+### Добавлено
+
+- `pbi_modules/schemas.py` — единый реестр колонок, вкладок GUI и листов Excel;
+  `constants.py` (прочерк, пороги, лимиты), `focus.py` (нормализация focus-ID),
+  `ids.py` (`s3`/`A201`/`M12`), `version.py` (версия и сверка с CHANGELOG).
+- Пакет `pbi_modules/extract/`: `dependencies.py`, `model.py`, `json_io.py`,
+  `icons.py` и `layout/` (page, fields, filters, formatting, conditional, visuals).
+  `extractors.py` остался точкой входа через реэкспорт.
+- Пакет `pbi_modules/ui/`: `tables.py` (таблица и безопасные ячейки), `search.py`,
+  `worker.py`, `lineage_panel.py` с чистой `filter_dfs`.
+- Тесты контракта (`test_contract.py`), focus-ID (`test_focus.py`), форматтеров
+  (`test_formatters.py`), ячеек (`test_tables.py`), фильтра lineage без Qt.
+- В CI добавлен порог покрытия (`--cov-fail-under=60`, фактически 65%).
+
+### Изменено
+
+- `lineage.py`: сборка рёбер разбита на `EdgeBuilder` и сборщики источников,
+  столбцов, мер и визуалов.
+- `formatters.py`: один рендер DAX (`_render`) вместо двух копий, один набор
+  правил пробелов у операторов.
+- `get_column_number` работает по индексу за O(1) вместо обхода таблиц в цикле.
+- `build_exe.py` берёт версию из `version.py` и падает при расхождении с CHANGELOG;
+  в hidden-imports добавлены `extract/`, `ui/`, `schemas`, `focus`, `ids`, `constants`.
+- Зависимости разделены: `requirements.txt` (рантайм) и `requirements-dev.txt`.
+- `ruff` включает правила `I` (порядок импортов).
+
+### Исправлено
+
+- Меры скрытых таблиц больше не теряются в `.pbit`: они попадают в «Меры»
+  с «№ таблицы» = «—», зависимости разрешаются в lineage.
+- Служебные таблицы дат (`DateTableTemplate_*`, `LocalDateTable_*`) не попадают
+  в «Справочник таблиц»; таблица без `name` не роняет разбор.
+- Нечитаемый `config` визуала и ошибки объединения ячеек больше не глушатся молча —
+  пишутся в лог с ID визуала/листа.
+- Удалены отладочные ветки с захардкоженными ID визуалов и дубль `visual_id_label`.
+- Убраны черновики `_work/test_*.py`; их сценарии перенесены в pytest.
+
 ## [2.2.0] — 2026-10-26
 
 ### Добавлено

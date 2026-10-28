@@ -231,7 +231,7 @@ path
 ### Этап 7. Документация и релиз (0.5 дня)
 
 - README: форматы, ограничения PBIX (нет визуалов, нет данных), установка, примеры CLI.
-- `plan/CHANGELOG.md`: `[2.2.0]` — единственный источник версии (`build_exe.detect_app_version`)
+- `docs/CHANGELOG.md`: `[2.2.0]` — единственный источник версии (`build_exe.detect_app_version`)
   → имена `PBIT_Analyzer_GUI_v2.2.0.exe`, `PBIT_Analyzer_CLI_v2.2.0.exe`.
 - `create_exe.bat` — тонкая обёртка над `build_exe.py` (те же флаги и очистка).
 
@@ -319,7 +319,7 @@ path
 7d. Убраны вкладка GUI «Перспективы» и лист Excel «Перспективы»: данные остаются
     в `dfs["perspectives"]`, но в интерфейсе и отчёте не выводятся.
 7e. Справка собранного EXE ищет документацию в `sys._MEIPASS`, а не на уровень выше
-    (иначе `schema_documentation.md` и `plan/CHANGELOG.md` не находились).
+    (иначе `docs/schema_documentation.md` и `docs/CHANGELOG.md` не находились).
 8. Добавлены `run_cli.py --self-test` и `run_gui.py --self-test` — без них smoke-проверка
    собранного EXE в CI невозможна (у windowed-сборки нет консоли).
 

@@ -1,10 +1,35 @@
+[project]
+name = "pbit-analyzer"
+version = "2.3.0"
+description = "Анализатор Power BI: метаданные .pbit/.pbix, lineage и Excel-отчёт"
+requires-python = ">=3.10"
+dependencies = [
+    "PyQt6==6.7.1",
+    "pandas==2.3.3",
+    "openpyxl==3.1.5",
+    "pbixray==0.15.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.3",
+    "pytest-cov>=5.0",
+    "ruff==0.6.9",
+    "pyinstaller>=6.0",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-exclude = ["temp"]
+exclude = ["temp", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+# Длинные строки — в основном HTML справки и тексты ошибок; контролируем вручную.
+ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "_work/last_work_gui_work.py" = ["E402"]
