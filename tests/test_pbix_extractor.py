@@ -176,6 +176,117 @@ def test_new_frames_have_stable_columns(dfs):
     assert dfs["warnings"] == []
 
 
+class FakePBIXModelWithCalculatedTable(FakePBIXModel):
+    """Модель с вычисляемой таблицей.
+
+    PBIXRay не отдаёт её в tmschema_tables/tmschema_columns: строка таблицы
+    помечена SystemFlags = 2, а столбцы имеют Column.Type = 4. Список таблиц
+    приходит из model.tables (schema), сама таблица — из dax_tables.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.tables = ["Sales", "Calendar", "H$ Sales (1)$Amount (2)"]
+        self.dax_tables = pd.DataFrame([
+            {"TableName": "Calendar",
+             "Expression": "ADDCOLUMNS(DISTINCT(Sales[Amount]), \"Year\", YEAR([Amount]))"},
+        ])
+        self.schema = pd.DataFrame([
+            {"TableName": "Sales", "ColumnName": "Amount", "PandasDataType": "float64"},
+            {"TableName": "Sales", "ColumnName": "Total", "PandasDataType": "Float64"},
+            {"TableName": "Calendar", "ColumnName": "Date", "PandasDataType": "datetime64[ns]"},
+            {"TableName": "Calendar", "ColumnName": "Year", "PandasDataType": "Int64"},
+            {"TableName": "Calendar", "ColumnName": "IsCurrent", "PandasDataType": "boolean"},
+            {"TableName": "Calendar", "ColumnName": "Month", "PandasDataType": "string"},
+        ])
+        self.statistics = pd.DataFrame([
+            {"TableName": "Calendar", "ColumnName": "Date", "Cardinality": 366,
+             "Dictionary": 400, "HashIndex": 0, "DataSize": 1200},
+        ])
+
+
+def test_calculated_table_is_kept_out_of_tmschema():
+    dfs = PBIXModelExtractor(FakePBIXModelWithCalculatedTable()).extract_all()
+    tables = dfs["tables_ref"].set_index("Имя таблицы")
+
+    # Служебная таблица движка (H$) отброшена, вычисляемая — сохранена.
+    assert "H$ Sales (1)$Amount (2)" not in tables.index
+    assert list(tables.index) == ["Sales", "Calendar", "Products"]
+    assert tables.loc["Calendar", "№ таблицы"] == "s2"
+    assert dfs["warnings"] == []
+
+
+def test_calculated_table_columns_come_from_schema():
+    dfs = PBIXModelExtractor(FakePBIXModelWithCalculatedTable()).extract_all()
+    columns = dfs["columns"][dfs["columns"]["Таблица"] == "Calendar"].set_index("Столбец")
+
+    assert list(columns.index) == ["Date", "Year", "IsCurrent", "Month"]
+    assert columns.loc["Date", "№ столбца"] == "A201"
+    assert columns.loc["Date", "Тип данных"] == "dateTime"
+    assert columns.loc["Year", "Тип данных"] == "int64"
+    assert columns.loc["IsCurrent", "Тип данных"] == "boolean"
+    assert columns.loc["Month", "Тип данных"] == "string"
+    assert set(columns["Тип значения"]) == {"Столбец вычисляемой таблицы"}
+    assert set(columns["Формула (если вычисляемый)"]) == {"—"}
+
+
+def test_calculated_table_is_visible_in_sources_dax_and_statistics():
+    dfs = PBIXModelExtractor(FakePBIXModelWithCalculatedTable()).extract_all()
+
+    sources = dfs["sources"].set_index("Таблица")
+    assert sources.loc["Calendar", "Тип источника"] == "Вычисляемая таблица (DAX)"
+    assert "📊 S1" in sources.loc["Calendar", "Зависимости"]
+
+    dax_tables = dfs["dax"][dfs["dax"]["Тип объекта"] == "Вычисляемая таблица"]
+    assert dax_tables["Таблица"].tolist() == ["Calendar"]
+    assert "ADDCOLUMNS" in dax_tables.iloc[0]["Выражение"]
+
+    assert "Calendar" in dfs["statistics"]["Таблица"].tolist()
+
+
+def test_calculated_column_type_falls_back_to_schema():
+    """У вычисляемого столбца DataType = Automatic (1) — тип берём из schema."""
+
+    class AutomaticTypeModel(FakePBIXModel):
+        def __init__(self):
+            super().__init__()
+            self.tmschema_columns.loc[
+                self.tmschema_columns["Name"] == "Total", "DataType"
+            ] = 1
+            self.schema = pd.DataFrame([
+                {"TableName": "Sales", "ColumnName": "Amount", "PandasDataType": "float64"},
+                {"TableName": "Sales", "ColumnName": "Total", "PandasDataType": "Int64"},
+            ])
+
+    dfs = PBIXModelExtractor(AutomaticTypeModel()).extract_all()
+    column = dfs["columns"].set_index("Столбец").loc["Total"]
+
+    assert column["Тип данных"] == "int64"
+    assert column["Тип значения"] == "Вычисляемый столбец"
+
+
+def test_calculated_table_without_storage_uses_statistics_columns():
+    class UntouchedModel(FakePBIXModelWithCalculatedTable):
+        """Таблица ещё ни разу не рассчитывалась: schema по ней пуста."""
+
+        def __init__(self):
+            super().__init__()
+            self.schema = pd.DataFrame(columns=["TableName", "ColumnName", "PandasDataType"])
+            self.statistics = pd.DataFrame([
+                {"TableName": "Calendar", "ColumnName": "Date", "Cardinality": 0,
+                 "Dictionary": 0, "HashIndex": 0, "DataSize": 0},
+                {"TableName": "Calendar", "ColumnName": "Year", "Cardinality": 0,
+                 "Dictionary": 0, "HashIndex": 0, "DataSize": 0},
+            ])
+
+    dfs = PBIXModelExtractor(UntouchedModel()).extract_all()
+    columns = dfs["columns"][dfs["columns"]["Таблица"] == "Calendar"]
+
+    assert columns["Столбец"].tolist() == ["Date", "Year"]
+    assert set(columns["Тип значения"]) == {"Столбец вычисляемой таблицы"}
+    assert set(columns["Тип данных"]) == {"—"}
+
+
 def test_partial_failure_keeps_other_blocks():
     class BrokenModel:
         """Прокси, у которого падает только чтение RLS."""

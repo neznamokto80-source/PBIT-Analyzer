@@ -25,12 +25,29 @@ from .schemas import columns_for
 
 logger = logging.getLogger(__name__)
 
-# TOM Column.Type / DataType / SummarizationType -> имена как в DataModelSchema (.pbit)
+# TOM Column.Type -> имена как в DataModelSchema (.pbit):
+# 1 — данные, 2 — вычисляемый столбец, 3 — RowNumber, 4 — столбец вычисляемой таблицы.
 COLUMN_TYPE_MAP = {
     1: "data",
     2: "calculated",
-    3: "calculatedTableColumn",
-    4: "rowNumber",
+    3: "rowNumber",
+    4: "calculatedTableColumn",
+}
+# pandas-тип из PBIXRay.schema -> dataType модели (.pbit). Нужен для столбцов
+# вычисляемых таблиц: их метаданные (Column.Type = 4) PBIXRay в TMSCHEMA не отдаёт.
+PANDAS_DATA_TYPE_MAP = {
+    "int64": "int64",
+    "Int64": "int64",
+    "int32": "int64",
+    "Int32": "int64",
+    "float64": "double",
+    "Float64": "double",
+    "float32": "double",
+    "bool": "boolean",
+    "boolean": "boolean",
+    "string": "string",
+    "object": "string",
+    "category": "string",
 }
 DATA_TYPE_MAP = {
     1: "automatic",
@@ -119,6 +136,15 @@ class PBIXModelExtractor:
     def __init__(self, model: Any):
         self.model = model
         self.warnings: list[str] = []
+        # Столбцы из PBIXRay.schema читаются до списка таблиц: только там есть
+        # столбцы вычисляемых таблиц (TMSCHEMA_* их не содержит).
+        self.schema_columns = self._read_schema_columns()
+        self.schema_types = {
+            (table, column): pandas_type
+            for table, columns in self.schema_columns.items()
+            for column, pandas_type in columns
+        }
+        self.dax_table_expressions: dict[str, str] = {}
         self.tables = self._read_tables()
         self.table_names = {name for name, _ in self.tables}
         self.table_number = {name: table_number(idx) for idx, (name, _) in enumerate(self.tables, 1)}
@@ -152,8 +178,41 @@ class PBIXModelExtractor:
             return pd.DataFrame(columns=columns or [])
         return _as_frame(value, columns or [])
 
+    def _read_schema_columns(self) -> dict[str, list[tuple[str, str]]]:
+        """Столбцы из PBIXRay.schema: имена в порядке модели и pandas-типы.
+
+        Это единственный доступный источник столбцов вычисляемых таблиц:
+        их метаданные имеют Column.Type = 4, а tmschema_columns отдаёт
+        только типы 1 и 2 (данные и вычисляемые столбцы обычных таблиц).
+        """
+        try:
+            value = getattr(self.model, "schema", None)
+        except Exception as error:  # noqa: BLE001 — блок необязателен
+            self.warnings.append(f"schema: {type(error).__name__}: {error}")
+            logger.warning("Не удалось прочитать schema: %s", error)
+            return {}
+        frame = _as_frame(value, ["TableName", "ColumnName", "PandasDataType"])
+        columns: dict[str, list[tuple[str, str]]] = {}
+        for _, row in frame.iterrows():
+            table_name = _clean(row.get("TableName"))
+            column_name = _clean(row.get("ColumnName"))
+            if not table_name or not column_name:
+                continue
+            columns.setdefault(table_name, []).append(
+                (column_name, _clean(row.get("PandasDataType")))
+            )
+        return columns
+
     def _read_tables(self) -> list[tuple[str, dict]]:
         frame = self._get("tmschema_tables", ["Name", "Description", "IsHidden"])
+        # Вычисляемые таблицы помечены в метаданных SystemFlags = 2, поэтому в
+        # tmschema_tables (фильтр SystemFlags = 0) их нет — берём из dax_tables.
+        dax_frame = self._get("dax_tables", ["TableName", "Expression"])
+        self.dax_table_expressions = {
+            _clean(row.get("TableName")): _clean(row.get("Expression"))
+            for _, row in dax_frame.iterrows()
+            if _clean(row.get("TableName"))
+        }
         table_order: list[str] = []
         try:
             table_order = [str(name) for name in list(self.model.tables)]
@@ -169,7 +228,7 @@ class PBIXModelExtractor:
         # Полный порядок таблиц модели: видимые нужны для «Справочника таблиц»,
         # а скрытые — чтобы не потерять меры, закреплённые за скрытой таблицей.
         names = list(table_order) or []
-        for name in meta:
+        for name in list(meta) + list(self.dax_table_expressions):
             if name not in names:
                 names.append(name)
         self.all_table_names = names
@@ -182,8 +241,9 @@ class PBIXModelExtractor:
             if hidden or system_table:
                 continue
             # tmschema_tables содержит только пользовательские таблицы;
-            # всё остальное в model.tables — служебные объекты движка.
-            if meta and name not in meta:
+            # отсутствующие в ней имена — либо вычисляемая таблица (её метаданные
+            # помечены SystemFlags = 2), либо служебная таблица движка (H$…, R$…).
+            if meta and name not in meta and name not in self.dax_table_expressions:
                 continue
             result.append((name, info))
         return result
@@ -201,6 +261,8 @@ class PBIXModelExtractor:
             ]
             if "DisplayOrdinal" in columns_frame.columns:
                 rows.sort(key=lambda row: _sort_ordinal(row.get("DisplayOrdinal")))
+            if not rows:
+                rows = self._calculated_table_columns(table_name)
             table_cols: list[str] = []
             t_num = self.table_number[table_name]
             for ci, row in enumerate(rows, 1):
@@ -263,9 +325,44 @@ class PBIXModelExtractor:
                 return column_number(t_num, ci)
         return ""
 
+    def _calculated_table_columns(self, table_name: str) -> list[dict]:
+        """Столбцы вычисляемой таблицы: TMSCHEMA_* их не отдаёт (Column.Type = 4).
+
+        Имена, порядок и типы берутся из PBIXRay.schema; если таблица ещё не
+        рассчитана и данных по столбцам нет — из statistics без типа данных.
+        """
+        if table_name not in self.dax_table_expressions:
+            return []
+        columns = self.schema_columns.get(table_name, [])
+        if not columns:
+            statistics = self._get("statistics", ["TableName", "ColumnName"])
+            columns = [
+                (_clean(row.get("ColumnName")), "")
+                for _, row in statistics.iterrows()
+                if _clean(row.get("TableName")) == table_name and _clean(row.get("ColumnName"))
+            ]
+        return [
+            {
+                "Name": column_name,
+                "Type": 4,
+                "DataType": _data_type_from_pandas(pandas_type),
+                "Description": "",
+                "Expression": "",
+                "FormatString": "",
+                "SummarizeBy": "",
+            }
+            for column_name, pandas_type in columns
+        ]
+
     def _build_column_row(self, table_name: str, t_num: str, col_num: str, col_name: str, row: Any) -> dict:
         col_type = COLUMN_TYPE_MAP.get(_to_int(row.get("Type")), "")
         data_type = DATA_TYPE_MAP.get(_to_int(row.get("DataType")), _clean(row.get("DataType")))
+        if data_type == "automatic":
+            # У вычисляемых столбцов в метаданных остаётся ExplicitDataType =
+            # Automatic: фактический тип движка есть только в PBIXRay.schema.
+            data_type = _data_type_from_pandas(
+                self.schema_types.get((table_name, col_name), "")
+            ) or data_type
         if col_type == "calculated":
             value_type = "Вычисляемый столбец"
         elif col_type == "calculatedTableColumn":
@@ -536,6 +633,14 @@ class PBIXModelExtractor:
         }
         dfs["warnings"] = list(self.warnings)
         return dfs
+
+
+def _data_type_from_pandas(pandas_type: str) -> str:
+    """pandas-тип из schema -> dataType модели в терминах .pbit."""
+    text = (pandas_type or "").strip()
+    if text.startswith("datetime64"):
+        return "dateTime"
+    return PANDAS_DATA_TYPE_MAP.get(text, "")
 
 
 def _to_int(value: Any) -> int | None:
